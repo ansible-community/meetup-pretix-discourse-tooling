@@ -1,0 +1,79 @@
+<script type="text/discourse-plugin" version="1.0">
+// Inject schema.org/Event JSON-LD for topics with a Discourse Event widget.
+// Parses event data from the server-rendered .discourse-post-event div
+// (data-start, data-end, data-timezone, data-name) and injects a
+// <script type="application/ld+json"> block into <head>.
+//
+// Googlebot renders JavaScript, so this JSON-LD is visible to Google
+// even though it's injected client-side. Verified: forum.ansible.com
+// serves identical HTML to all user agents (no separate crawler layout).
+
+const JSONLD_ID = "ansible-event-jsonld";
+
+function injectEventJsonLd() {
+  const widget = document.querySelector(".discourse-post-event");
+  if (!widget) {
+    removeJsonLd();
+    return;
+  }
+
+  const startDate = widget.dataset.start;
+  const endDate = widget.dataset.end;
+  const name = widget.dataset.name;
+
+  if (!startDate || !name) {
+    removeJsonLd();
+    return;
+  }
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Event",
+    "name": name,
+    "startDate": startDate,
+    "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+    "eventStatus": "https://schema.org/EventScheduled",
+    "organizer": {
+      "@type": "Organization",
+      "name": "Ansible Community",
+      "url": "https://forum.ansible.com"
+    },
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD",
+      "availability": "https://schema.org/InStock",
+      "url": window.location.href
+    },
+    "isAccessibleForFree": true
+  };
+
+  if (endDate) {
+    jsonLd.endDate = endDate;
+  }
+
+  // Use the current page URL as the event URL (the forum topic IS the event page)
+  jsonLd.url = window.location.href;
+
+  let script = document.getElementById(JSONLD_ID);
+  if (!script) {
+    script = document.createElement("script");
+    script.id = JSONLD_ID;
+    script.type = "application/ld+json";
+    document.head.appendChild(script);
+  }
+  script.textContent = JSON.stringify(jsonLd);
+}
+
+function removeJsonLd() {
+  const existing = document.getElementById(JSONLD_ID);
+  if (existing) {
+    existing.remove();
+  }
+}
+
+api.onPageChange(() => {
+  // Small delay to ensure the event widget is in the DOM after navigation
+  setTimeout(injectEventJsonLd, 100);
+});
+</script>
