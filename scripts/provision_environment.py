@@ -11,6 +11,7 @@ from ansible_events_lib import (
     ADMIN_GROUP_NAME,
     ANSIBLE_PRIMARY_COLOR,
     ApiError,
+    ATTENDEE_GROUP_PREFIX,
     CITIES,
     CODE_OF_CONDUCT_URL,
     CONTACT_EMAIL,
@@ -38,7 +39,7 @@ from ansible_events_lib import (
 
 def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str]:
     host_group = f"{ORGANISERS_GROUP_PREFIX}-{city_slug}"
-    attendee_group = f"meetup-attendee-{city_slug}"
+    attendee_group = f"{ATTENDEE_GROUP_PREFIX}-{city_slug}"
 
     def ensure_group(name: str, group: dict) -> None:
         groups = discourse_req("GET", "admin/groups.json").get("groups", [])
