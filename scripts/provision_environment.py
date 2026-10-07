@@ -7,6 +7,9 @@ as new cities are added to the CITIES registry.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from ansible_events_lib import (
     ANSIBLE_PRIMARY_COLOR,
     ApiError,
@@ -68,7 +71,7 @@ GROUP_RECONCILE_FIELDS = (
     "automatic_membership_email_domains",
 )
 
-FIELD_LABELS = {
+FIELD_LABELS: dict[str, str] = {
     "full_name": "full name",
     "bio_raw": "description",
     "visibility_level": "visibility",
@@ -87,7 +90,7 @@ FIELD_LABELS = {
     "limit_organizer_permissions": "organizer permissions",
     "limit_events": "event scope",
 }
-UNORDERED_FIELDS = {
+UNORDERED_FIELDS: set[str] = {
     "limit_event_permissions",
     "limit_organizer_permissions",
     "limit_events",
@@ -96,7 +99,7 @@ UNORDERED_FIELDS = {
 }
 
 
-def same_configuration_value(field: str, current: object, desired: object) -> bool:
+def same_configuration_value(field: str, current: Any, desired: Any) -> bool:
     if field in UNORDERED_FIELDS and isinstance(current, list) and isinstance(desired, list):
         return set(current) == set(desired)
     return current == desired
@@ -104,9 +107,9 @@ def same_configuration_value(field: str, current: object, desired: object) -> bo
 
 def log_resource_status(
     resource: str,
-    desired: dict,
-    before: dict | None,
-    extra_status: dict[str, str] | None = None,
+    desired: Mapping[str, Any],
+    before: Mapping[str, Any] | None,
+    extra_status: Mapping[str, str] | None = None,
 ) -> None:
     """Log whether each desired field was already correct or had to change."""
     statuses = {
