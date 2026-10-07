@@ -12,7 +12,6 @@ from ansible_events_lib import (
     DEFAULT_ITEM_NAME,
     DEFAULT_ITEM_PRICE,
     DEFAULT_QUOTA_NAME,
-    DISCOURSE_EVENTS_CATEGORY_ID,
     DISCOURSE_URL,
     EVENT_NAME_PREFIX,
     EVENTS_FORUM_URL,
@@ -24,6 +23,7 @@ from ansible_events_lib import (
     TEMPLATE_SLUG,
     check_event_exists,
     discourse_req,
+    discourse_city_category_id,
     discourse_user_exists,
     discourse_user_in_group,
     get_city,
@@ -171,6 +171,7 @@ def main() -> None:
     if not any(team.get("name") == team_name for team in pretix_list_all("teams")):
         logger.error("Pretix team %r does not exist. Provision the environment first.", team_name)
         raise SystemExit(1)
+    city_category_id = discourse_city_category_id(city_title)
 
     logger.info("Drafting initial forum post on behalf of @%s...", args.organiser)
 
@@ -290,7 +291,7 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
         {
             "title": f"{EVENT_NAME_PREFIX}: {city_title} - {dt.strftime('%B %Y')}",
             "raw": initial_markdown,
-            "category": DISCOURSE_EVENTS_CATEGORY_ID,
+            "category": city_category_id,
         },
         run_as=args.organiser,
     )

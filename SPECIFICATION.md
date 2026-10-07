@@ -152,7 +152,6 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 | `TEMPLATE_SLUG` | `ansible-meetup-template-v6` | Template event identifier |
 | `CONTACT_EMAIL` | `ansible-community-events@redhat.com` | Organizer contact email |
 | `DISCOURSE_PARENT_CATEGORY_ID` | `8` | Parent category for regional subcategories |
-| `DISCOURSE_EVENTS_CATEGORY_ID` | `14` | Category for new event topics |
 
 ---
 
@@ -162,7 +161,7 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 
 **Purpose:** Reconcile Pretix and Discourse resources to desired state. Resources are resolved by stable name, created if absent, and updated when security-relevant settings drift.
 
-**Prerequisites:** `PRETIX_API_TOKEN` and `DISCOURSE_API_KEY` environment variables set.
+**Prerequisites:** `PRETIX_API_TOKEN` and `DISCOURSE_API_KEY` environment variables set. Discourse's `enable_category_group_moderation` setting must be enabled; provisioning fails before making changes if it is disabled or cannot be read.
 
 **Phase 1: Discourse Provisioning**
 
@@ -174,7 +173,7 @@ For each city in the `CITIES` registry:
 
 2. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force visibility level 3 (staff only).
 
-3. Reconcile regional subcategory by parent and name, enforcing its description, color, permissions, and moderator assignment.
+3. Reconcile regional subcategory by parent and name, enforcing its description, color, read permissions, and `moderating_group_ids` assignment to that city's organiser group. Then remove registered organiser moderator assignments from every other category.
 
 **Phase 2: Pretix Provisioning**
 
@@ -247,7 +246,8 @@ For each city in the `CITIES` registry:
 
 - `POST /posts.json`
 - Headers: `Api-Username: {organiser}` (impersonation)
-- Payload: `{"title": "Ansible Meetup: {City} - {Month Year}", "raw": {initial_markdown}, "category": 14}`
+- Resolve the exact city subcategory under parent category `8` by name. Abort if missing or ambiguous.
+- Payload: `{"title": "Ansible Meetup: {City} - {Month Year}", "raw": {initial_markdown}, "category": {city_category_id}}`
 - **MUST abort** (exit 1) if this fails. No Pretix event should be created without a forum topic.
 - Extract `post_id`, `topic_slug`, and `topic_id` from response.
 - Construct `forum_url = f"{DISCOURSE_URL}/t/{topic_slug}/{topic_id}"`

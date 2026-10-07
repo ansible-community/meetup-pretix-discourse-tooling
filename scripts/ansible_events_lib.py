@@ -43,7 +43,6 @@ EVENTS_FORUM_URL = f"{DISCOURSE_URL}/c/events/8"
 
 # --- Discourse IDs ---
 DISCOURSE_PARENT_CATEGORY_ID = 8
-DISCOURSE_EVENTS_CATEGORY_ID = 14
 
 # --- Naming ---
 EVENT_NAME_PREFIX = "Ansible Meetup"
@@ -151,6 +150,43 @@ def discourse_user_in_group(username: str, group_name: str) -> bool:
     user_data = resp.get("user", {})
     groups = user_data.get("groups", [])
     return any(g.get("name") == group_name for g in groups)
+
+
+def discourse_city_category_id(city_name: str) -> int:
+    """Resolve the registered city's Events subcategory, failing on missing or ambiguous state."""
+    response = discourse_req("GET", "categories.json")
+    category_list = response.get("category_list")
+    if not isinstance(category_list, dict):
+        raise ApiError("Discourse categories response is missing category_list")
+    roots = category_list.get("categories")
+    if not isinstance(roots, list):
+        raise ApiError("Discourse categories response is missing categories")
+
+    categories: list[dict[str, Any]] = []
+
+    def flatten(rows: list[Any]) -> None:
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ApiError("Discourse categories response contains an invalid category")
+            categories.append(row)
+            children = row.get("subcategory_list", row.get("subcategories", []))
+            if children is not None:
+                if not isinstance(children, list):
+                    raise ApiError("Discourse categories response contains invalid subcategories")
+                flatten(children)
+
+    flatten(roots)
+    matches = [
+        category
+        for category in categories
+        if category.get("name", "").casefold() == city_name.casefold()
+        and category.get("parent_category_id") == DISCOURSE_PARENT_CATEGORY_ID
+    ]
+    if len(matches) != 1 or not isinstance(matches[0].get("id"), int):
+        raise ApiError(
+            f"Expected exactly one Events subcategory for {city_name!r}; found {len(matches)}"
+        )
+    return matches[0]["id"]
 
 
 def pre_flight_checks(*, require_discourse: bool = True) -> None:

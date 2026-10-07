@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from ansible_events_lib import (
     ANSIBLE_PRIMARY_COLOR,
+    ApiError,
     ATTENDEE_GROUP_PREFIX,
     STAFF_GROUP_NAME,
     CITIES,
@@ -28,6 +29,7 @@ from ansible_events_lib import (
     USER_CITY_FIELD_ID,
     check_event_exists,
     discourse_req,
+    discourse_city_category_id,
     logger,
     pre_flight_checks,
     pretix_list_all,
@@ -36,22 +38,29 @@ from ansible_events_lib import (
 )
 
 
-def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str]:
+def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, int]:
     host_group = f"{ORGANISERS_GROUP_PREFIX}-{city_slug}"
     attendee_group = f"{ATTENDEE_GROUP_PREFIX}-{city_slug}"
 
-    def ensure_group(name: str, group: dict) -> None:
+    def ensure_group(name: str, group: dict) -> int:
         groups = discourse_req("GET", "admin/groups.json").get("groups", [])
         existing = next((item for item in groups if item.get("name") == name), None)
         payload = {"group": group}
         if existing:
             logger.info("Reconciling group %s...", name)
             discourse_req("PUT", f"groups/{existing['id']}.json", payload)
+            group_id = existing.get("id")
         else:
             logger.info("Creating group %s...", name)
             discourse_req("POST", "admin/groups.json", payload)
+            groups = discourse_req("GET", "admin/groups.json").get("groups", [])
+            created = next((item for item in groups if item.get("name") == name), None)
+            group_id = created.get("id") if created else None
+        if not isinstance(group_id, int):
+            raise ApiError(f"Could not resolve Discourse group ID for {name!r}")
+        return group_id
 
-    ensure_group(host_group, {
+    host_group_id = ensure_group(host_group, {
                 "name": host_group,
                 "full_name": f"Ansible Meetup Organisers - {city_name}",
                 "bio_raw": (
@@ -74,10 +83,10 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str]:
                 ),
                 "visibility_level": 3,
             })
-    return host_group, attendee_group
+    return host_group, attendee_group, host_group_id
 
 
-def ensure_discourse_category(city_name: str, host_group: str, attendee_group: str) -> None:
+def ensure_discourse_category(city_name: str, host_group: str, attendee_group: str, host_group_id: int) -> None:
     logger.info("Ensuring category Events > %s...", city_name)
     desired = {
             "name": city_name,
@@ -91,7 +100,7 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
                 f"RSVP to upcoming Ansible Meetup {city_name} events below."
             ),
             "permissions": {"everyone": 1, host_group: 1, attendee_group: 1},
-            "reviewable_by_group_name": host_group,
+            "moderating_group_ids": [host_group_id],
         }
     categories = discourse_req("GET", "categories.json").get("category_list", {}).get("categories", [])
 
@@ -109,6 +118,71 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
         discourse_req("PUT", f"categories/{existing['id']}.json", desired)
     else:
         discourse_req("POST", "categories.json", desired)
+
+
+def reconcile_organiser_category_moderators(city_moderators: dict[int, int]) -> None:
+    """Keep each registered organiser group as moderator only on its own city category."""
+    category_list = discourse_req("GET", "categories.json").get("category_list", {})
+    roots = category_list.get("categories") if isinstance(category_list, dict) else None
+    if not isinstance(roots, list):
+        raise ApiError("Discourse categories response is missing categories")
+
+    categories: list[dict] = []
+
+    def flatten(rows: list) -> None:
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ApiError("Discourse categories response contains an invalid category")
+            categories.append(row)
+            children = row.get("subcategory_list", row.get("subcategories", []))
+            if children is not None:
+                if not isinstance(children, list):
+                    raise ApiError("Discourse categories response contains invalid subcategories")
+                flatten(children)
+
+    flatten(roots)
+    managed_group_ids = set(city_moderators.values())
+
+    for category in categories:
+        category_id = category.get("id")
+        if not isinstance(category_id, int):
+            raise ApiError("Discourse categories response contains an invalid category ID")
+        detail = discourse_req("GET", f"categories/{category_id}.json")
+        detail = detail.get("category", detail)
+        current_ids = detail.get("moderating_group_ids") if isinstance(detail, dict) else None
+        if not isinstance(current_ids, list) or any(not isinstance(group_id, int) for group_id in current_ids):
+            raise ApiError(f"Discourse category {category_id} returned invalid moderator group IDs")
+
+        desired_ids = [group_id for group_id in current_ids if group_id not in managed_group_ids]
+        city_group_id = city_moderators.get(category_id)
+        if city_group_id is not None:
+            desired_ids.append(city_group_id)
+        desired_ids = sorted(set(desired_ids))
+        if desired_ids != sorted(set(current_ids)):
+            discourse_req(
+                "PUT",
+                f"categories/{category_id}.json",
+                {"moderating_group_ids": desired_ids},
+            )
+
+
+def ensure_category_group_moderation_enabled() -> None:
+    """Fail unless Discourse permits assigning groups as category moderators."""
+    response = discourse_req(
+        "GET",
+        "admin/site_settings.json?names%5B%5D=enable_category_group_moderation",
+    )
+    settings = response.get("site_settings")
+    if not isinstance(settings, list):
+        raise ApiError("Could not verify Discourse category group moderation setting")
+    setting = next(
+        (item for item in settings if item.get("setting") == "enable_category_group_moderation"),
+        None,
+    )
+    if not setting or str(setting.get("value")).lower() != "true":
+        raise ApiError(
+            "Discourse enable_category_group_moderation must be enabled to assign city organisers"
+        )
 
 
 def ensure_user_field_options() -> None:
@@ -140,6 +214,7 @@ def ensure_user_field_options() -> None:
 
 def main() -> None:
     pre_flight_checks()
+    ensure_category_group_moderation_enabled()
 
     logger.info("--- 1. DISCOURSE PROVISIONING ---")
 
@@ -181,9 +256,14 @@ def main() -> None:
     else:
         discourse_req("POST", "admin/groups.json", migrated_payload)
 
+    city_moderators = {}
     for city in CITIES:
-        host_group, att_group = ensure_discourse_groups(city.slug, city.city)
-        ensure_discourse_category(city.city, host_group, att_group)
+        host_group, att_group, host_group_id = ensure_discourse_groups(city.slug, city.city)
+        ensure_discourse_category(city.city, host_group, att_group, host_group_id)
+        city_category_id = discourse_city_category_id(city.city)
+        city_moderators[city_category_id] = host_group_id
+
+    reconcile_organiser_category_moderators(city_moderators)
 
     ensure_user_field_options()
 
