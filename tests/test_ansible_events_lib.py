@@ -555,11 +555,17 @@ class TestProvisioningPermissions:
         current = {
             11: {
                 "moderating_group_ids": [9, 10],
-                "permissions": {"everyone": 1, "meetup-organisers-london": 1},
+                "group_permissions": [
+                    {"group_id": 0, "group_name": "everyone", "permission_type": 1},
+                    {"group_id": 9, "group_name": "meetup-organisers-london", "permission_type": 1},
+                ],
             },
             12: {
                 "moderating_group_ids": [10, 15],
-                "permissions": {"everyone": 1, "meetup-organisers-london": 1},
+                "group_permissions": [
+                    {"group_id": 0, "group_name": "everyone", "permission_type": 1},
+                    {"group_id": 9, "group_name": "meetup-organisers-london", "permission_type": 1},
+                ],
             },
         }
 
@@ -571,7 +577,16 @@ class TestProvisioningPermissions:
                 return {"category": current[category_id]}
             if method == "PUT" and endpoint.startswith("categories/"):
                 category_id = int(endpoint.split("/")[1].split(".")[0])
-                current[category_id].update(payload)
+                current[category_id].update({key: value for key, value in payload.items() if key != "permissions"})
+                if "permissions" in payload:
+                    current[category_id]["group_permissions"] = [
+                        {
+                            "group_id": 0 if name == "everyone" else (9 if name.endswith("london") else 15),
+                            "group_name": name,
+                            "permission_type": permission,
+                        }
+                        for name, permission in payload["permissions"].items()
+                    ]
                 return {}
             raise AssertionError(f"Unexpected Discourse request: {method} {endpoint}")
 
@@ -589,6 +604,9 @@ class TestProvisioningPermissions:
         provision_environment.reconcile_organiser_category_access({11: ("meetup-organisers-london", 9)})
 
         assert current[11]["moderating_group_ids"] == [9]
-        assert current[11]["permissions"] == {"everyone": 1, "meetup-organisers-london": 1}
+        assert current[11]["group_permissions"] == [
+            {"group_id": 0, "group_name": "everyone", "permission_type": 1},
+            {"group_id": 9, "group_name": "meetup-organisers-london", "permission_type": 1},
+        ]
         assert current[12]["moderating_group_ids"] == [15]
-        assert current[12]["permissions"] == {"everyone": 1}
+        assert current[12]["group_permissions"] == [{"group_id": 0, "group_name": "everyone", "permission_type": 1}]

@@ -280,6 +280,29 @@ def ensure_group_tracks_city_category(group_name: str, group_id: int, category_i
     log_resource_status(f"{group_name} category notifications", desired, before)
 
 
+def category_permission_map(category: Mapping[str, Any], category_id: int) -> dict[str, int]:
+    """Read Discourse's serialized group_permissions into its API input form."""
+    rows = category.get("group_permissions")
+    if not isinstance(rows, list):
+        raise ApiError(f"Discourse category {category_id} returned invalid group permissions")
+    permissions: dict[str, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ApiError(f"Discourse category {category_id} returned an invalid group permission")
+        group_name = row.get("group_name")
+        permission_type = row.get("permission_type")
+        if (
+            not isinstance(group_name, str)
+            or not group_name
+            or not isinstance(permission_type, int)
+            or isinstance(permission_type, bool)
+            or group_name in permissions
+        ):
+            raise ApiError(f"Discourse category {category_id} returned an invalid group permission")
+        permissions[group_name] = permission_type
+    return permissions
+
+
 def ensure_discourse_category(city_name: str, host_group: str, attendee_group: str, host_group_id: int) -> None:
     desired = {
         "name": city_name,
@@ -311,6 +334,7 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
         before = before_response.get("category", before_response)
         if not isinstance(before, dict):
             raise ApiError(f"Could not read current settings for Discourse category {city_name!r}")
+        before = {**before, "permissions": category_permission_map(before, existing["id"])}
         if any(not same_configuration_value(key, before.get(key), value) for key, value in desired.items()):
             discourse_req("PUT", f"categories/{existing['id']}.json", desired)
     else:
@@ -318,13 +342,19 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
     category_id = discourse_city_category_id(city_name)
     result = discourse_req("GET", f"c/{category_id}/show.json")
     category = result.get("category", result)
-    mismatched_fields = (
-        [key for key, value in desired.items() if not same_configuration_value(key, category.get(key), value)]
+    if isinstance(category, dict):
+        category = {**category, "permissions": category_permission_map(category, category_id)}
+    mismatches = (
+        [
+            f"{key}={category.get(key)!r} (expected {value!r})"
+            for key, value in desired.items()
+            if not same_configuration_value(key, category.get(key), value)
+        ]
         if isinstance(category, dict)
-        else list(desired)
+        else [f"{key} (category response is invalid)" for key in desired]
     )
-    if mismatched_fields:
-        raise ApiError(f"Discourse category {city_name!r} did not reconcile fields: {', '.join(mismatched_fields)}")
+    if mismatches:
+        raise ApiError(f"Discourse category {city_name!r} did not reconcile: {'; '.join(mismatches)}")
     log_resource_status(
         f"Events > {city_name}",
         desired,
@@ -372,9 +402,9 @@ def reconcile_organiser_category_access(
                 {"moderating_group_ids": desired_ids},
             )
 
-        permissions = detail.get("permissions") if isinstance(detail, dict) else None
-        if not isinstance(permissions, dict):
-            raise ApiError(f"Discourse category {category_id} returned invalid permissions")
+        if not isinstance(detail, dict):
+            raise ApiError(f"Discourse category {category_id} returned invalid details")
+        permissions = category_permission_map(detail, category_id)
         desired_permissions = {
             name: level
             for name, level in permissions.items()
@@ -394,7 +424,7 @@ def reconcile_organiser_category_access(
             updated = discourse_req("GET", f"c/{category_id}/show.json")
             updated = updated.get("category", updated)
             updated_ids = updated.get("moderating_group_ids")
-            updated_permissions = updated.get("permissions")
+            updated_permissions = category_permission_map(updated, category_id) if isinstance(updated, dict) else None
             if (
                 not isinstance(updated_ids, list)
                 or sorted(set(updated_ids)) != desired_ids
