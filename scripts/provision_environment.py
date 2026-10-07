@@ -154,13 +154,11 @@ def reconcile_organiser_category_access(
     if not isinstance(group_rows, list):
         raise ApiError("Discourse groups response is missing groups")
     managed_group_ids = {group_id for _, group_id in city_access.values()}
-    managed_group_names: set[str] = set()
     for group in group_rows:
         if not isinstance(group, dict):
             raise ApiError("Discourse groups response contains an invalid group")
         group_name = group.get("name")
         if isinstance(group_name, str) and ORGANIZERS_GROUP_RE.fullmatch(group_name):
-            managed_group_names.add(group_name)
             group_id = group.get("id")
             if not isinstance(group_id, int):
                 raise ApiError("Discourse organiser group response contains an invalid ID")
@@ -193,7 +191,9 @@ def reconcile_organiser_category_access(
         if not isinstance(permissions, dict):
             raise ApiError(f"Discourse category {category_id} returned invalid permissions")
         desired_permissions = {
-            name: level for name, level in permissions.items() if name not in managed_group_names
+            name: level
+            for name, level in permissions.items()
+            if not (isinstance(name, str) and ORGANIZERS_GROUP_RE.fullmatch(name))
         }
         if city_access_for_category is not None:
             city_group_name, _ = city_access_for_category
