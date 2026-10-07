@@ -22,6 +22,7 @@ from ansible_events_lib import (
     EVENTS_FORUM_URL,
     MIGRATED_GROUP_NAME,
     ORGANISERS_GROUP_PREFIX,
+    ORGANIZERS_GROUP_RE,
     ORGANISER_PERMISSIONS,
     PRIVACY_POLICY_URL,
     TEMPLATE_PLUGINS,
@@ -141,7 +142,19 @@ def reconcile_organiser_category_moderators(city_moderators: dict[int, int]) -> 
                 flatten(children)
 
     flatten(roots)
+    group_rows = discourse_req("GET", "admin/groups.json").get("groups")
+    if not isinstance(group_rows, list):
+        raise ApiError("Discourse groups response is missing groups")
     managed_group_ids = set(city_moderators.values())
+    for group in group_rows:
+        if not isinstance(group, dict):
+            raise ApiError("Discourse groups response contains an invalid group")
+        group_name = group.get("name")
+        if isinstance(group_name, str) and ORGANIZERS_GROUP_RE.fullmatch(group_name):
+            group_id = group.get("id")
+            if not isinstance(group_id, int):
+                raise ApiError("Discourse organiser group response contains an invalid ID")
+            managed_group_ids.add(group_id)
 
     for category in categories:
         category_id = category.get("id")
