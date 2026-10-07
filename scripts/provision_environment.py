@@ -108,7 +108,7 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
     if existing:
         discourse_req("PUT", f"categories/{existing['id']}.json", desired)
     else:
-        discourse_req("POST", "categories.json", {"category": desired})
+        discourse_req("POST", "categories.json", desired)
 
 
 def ensure_user_field_options() -> None:
