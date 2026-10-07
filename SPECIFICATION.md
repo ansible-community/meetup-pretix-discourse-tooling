@@ -169,9 +169,9 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 
 For each city in the `CITIES` registry:
 
-1. Reconcile organiser group `meetup-organisers-{slug}` by exact name; set visibility level 2 (members only) and update its description when it already exists.
+1. Reconcile organiser group `meetup-organisers-{slug}` by exact name; set visibility level 4 (owners only), member-list visibility level 3 (staff only), disable public admission and membership requests, clear automatic email-domain membership and group owners, and update its description. Forum admins manage membership.
 
-2. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force visibility level 3 (staff only).
+2. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force group and member-list visibility level 3 (staff only).
 
 3. Reconcile regional subcategory by parent and name, enforcing its description, color, read permissions, and `moderating_group_ids` assignment to that city's organiser group. Then remove registered organiser moderator assignments from every other category.
 
@@ -541,7 +541,7 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 - A Pretix lookup returning an error or unknown status is never treated as proof that an event does not exist; the operation stops with `ApiError`.
 - A city slug must match `^[a-z]+$` and be registered in `CITIES`. New cities must be added and deployed before event creation.
 - The auth plugin trusts only `meetup-staff` and exact `^meetup-organisers-([a-z]+)$` group claims. Every claimed organiser group must resolve to a Pretix team or login is denied.
-- Discourse groups are reconciled by name on every provisioning run. `meetup-staff` visibility is owners-only (level 4), organiser groups are members-only (level 2), and attendee groups are staff-only (level 3). Provisioning errors are fatal.
+- Discourse groups are reconciled by name on every provisioning run. `meetup-staff` visibility is owners-only (level 4); organiser groups are hidden (level 4), have staff-only member lists (level 3), and are managed by forum admins; attendee groups and their member lists are staff-only (level 3). Organiser group permissions and moderator assignments are removed from every category except that group's own city subcategory. Provisioning errors are fatal.
 - Non-local `PRETIX_URL` values must use HTTPS so API tokens are not sent over cleartext HTTP.
 
 ### Known Accepted Risks
