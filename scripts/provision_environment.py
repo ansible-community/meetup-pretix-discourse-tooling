@@ -48,7 +48,9 @@ def list_discourse_groups() -> list[dict]:
     groups: list[dict] = []
     page = 0
     while True:
-        response = discourse_req("GET", f"admin/groups.json?page={page}", empty_response={"groups": []})
+        # The admin endpoint handles group creation but does not return a JSON
+        # listing on GET. The group directory exposes the paginated JSON list.
+        response = discourse_req("GET", f"groups.json?page={page}")
         batch = response.get("groups")
         if not isinstance(batch, list):
             raise ApiError("Discourse groups response is missing groups")

@@ -284,19 +284,6 @@ class TestPretixApiContract:
         assert request.call_args.kwargs["headers"]["Api-Key"] == "test-api-key"
         assert request.call_args.kwargs["headers"]["Api-Username"] == "organiser"
 
-    def test_discourse_request_accepts_explicit_empty_204_response(self, monkeypatch):
-        import ansible_events_lib
-
-        response = Mock(status_code=204, text="")
-        monkeypatch.setattr(ansible_events_lib.httpx, "request", Mock(return_value=response))
-
-        assert ansible_events_lib.discourse_req("GET", "admin/groups.json?page=0", empty_response={"groups": []}) == {
-            "groups": []
-        }
-
-        with pytest.raises(ansible_events_lib.ApiError, match="empty response body"):
-            ansible_events_lib.discourse_req("GET", "admin/groups.json?page=0")
-
     def test_category_lookup_requires_unique_events_subcategory(self, monkeypatch):
         import ansible_events_lib
 
@@ -393,6 +380,29 @@ class MockResponse:
 
 
 class TestProvisioningPermissions:
+    def test_discourse_group_listing_uses_paginated_directory_endpoint(self, monkeypatch):
+        import provision_environment
+
+        requests = []
+
+        def request(method, endpoint):
+            requests.append((method, endpoint))
+            if endpoint == "groups.json?page=0":
+                return {"groups": [{"name": "meetup-organisers-london"}]}
+            if endpoint == "groups.json?page=1":
+                return {"groups": []}
+            raise AssertionError(f"Unexpected Discourse request: {method} {endpoint}")
+
+        monkeypatch.setattr(provision_environment, "discourse_req", request)
+
+        groups = provision_environment.list_discourse_groups()
+
+        assert groups == [{"name": "meetup-organisers-london"}]
+        assert requests == [
+            ("GET", "groups.json?page=0"),
+            ("GET", "groups.json?page=1"),
+        ]
+
     def test_template_settings_patch_only_differences(self, monkeypatch):
         import provision_environment
 

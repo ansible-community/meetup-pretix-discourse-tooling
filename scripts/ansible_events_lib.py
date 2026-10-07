@@ -260,14 +260,12 @@ def discourse_req(
     payload: dict[str, Any] | None = None,
     *,
     run_as: str | None = None,
-    empty_response: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Make an authenticated Discourse API request.
 
     Args:
         run_as: Override the API username for this request (e.g. to post
             on behalf of a specific user).
-        empty_response: Response object to use for an expected bodyless 204.
 
     Returns parsed JSON on success. Raises ApiError on every failure.
     """
@@ -285,8 +283,6 @@ def discourse_req(
         raise ApiError(f"Discourse {method} {endpoint} failed: {resp.status_code} {resp.text[:200]}")
     if not resp.text:
         if method.upper() in {"GET", "POST"}:
-            if resp.status_code == 204 and empty_response is not None:
-                return empty_response
             raise ApiError(f"Discourse {method} {endpoint} returned an empty response body")
         return {}
     try:
