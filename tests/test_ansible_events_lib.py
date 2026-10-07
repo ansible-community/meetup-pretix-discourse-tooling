@@ -380,6 +380,34 @@ class MockResponse:
 
 
 class TestProvisioningPermissions:
+    def test_resource_status_lists_changed_and_already_correct_fields(self, caplog):
+        import logging
+
+        import provision_environment
+
+        caplog.set_level(logging.INFO, logger=provision_environment.logger.name)
+        provision_environment.log_resource_status(
+            "meetup-organisers-london",
+            {"visibility_level": 1, "members_visibility_level": 2},
+            {"visibility_level": 0, "members_visibility_level": 2},
+        )
+
+        assert "meetup-organisers-london: Updated | visibility: Changed, member visibility: OK" in caplog.text
+
+    def test_resource_status_marks_created_fields_as_verified(self, caplog):
+        import logging
+
+        import provision_environment
+
+        caplog.set_level(logging.INFO, logger=provision_environment.logger.name)
+        provision_environment.log_resource_status(
+            "meetup-attendee-london",
+            {"visibility_level": 3, "members_visibility_level": 3},
+            None,
+        )
+
+        assert "meetup-attendee-london: Created | visibility: OK, member visibility: OK" in caplog.text
+
     def test_organizer_access_is_removed_everywhere_except_own_subcategory(self, monkeypatch):
         import provision_environment
 

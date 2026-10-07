@@ -68,6 +68,61 @@ GROUP_RECONCILE_FIELDS = (
     "automatic_membership_email_domains",
 )
 
+FIELD_LABELS = {
+    "full_name": "full name",
+    "bio_raw": "description",
+    "visibility_level": "visibility",
+    "members_visibility_level": "member visibility",
+    "public_admission": "public admission",
+    "allow_membership_requests": "membership requests",
+    "automatic_membership_email_domains": "automatic membership domains",
+    "owner_usernames": "group owners",
+    "permissions": "permissions",
+    "moderating_group_ids": "moderator groups",
+    "all_events": "all events",
+    "all_event_permissions": "all event permissions",
+    "limit_event_permissions": "event permissions",
+    "all_organizer_permissions": "all organizer permissions",
+    "limit_organizer_permissions": "organizer permissions",
+    "limit_events": "event scope",
+}
+UNORDERED_FIELDS = {
+    "limit_event_permissions",
+    "limit_organizer_permissions",
+    "limit_events",
+    "moderating_group_ids",
+}
+
+
+def same_configuration_value(field: str, current: object, desired: object) -> bool:
+    if field in UNORDERED_FIELDS and isinstance(current, list) and isinstance(desired, list):
+        return set(current) == set(desired)
+    return current == desired
+
+
+def log_resource_status(
+    resource: str,
+    desired: dict,
+    before: dict | None,
+    extra_status: dict[str, str] | None = None,
+) -> None:
+    """Log whether each desired field was already correct or had to change."""
+    statuses = {
+        FIELD_LABELS.get(field, field.replace("_", " ")): (
+            "OK" if before is None or same_configuration_value(field, before.get(field), value) else "Changed"
+        )
+        for field, value in desired.items()
+    }
+    statuses.update(extra_status or {})
+    if before is None:
+        state = "Created"
+    elif any(status == "Changed" for status in statuses.values()):
+        state = "Updated"
+    else:
+        state = "Already configured"
+    details = ", ".join(f"{field}: {status}" for field, status in statuses.items())
+    logger.info("%s: %s | %s", resource, state, details)
+
 
 def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, int]:
     host_group = f"{ORGANISERS_GROUP_PREFIX}-{city_slug}"
@@ -80,12 +135,26 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
             raise ApiError(f"Multiple Discourse groups are named {name!r}")
         existing = matches[0] if matches else None
         payload = {"group": group}
+        before = None
+        before_owners = []
         if existing:
-            logger.info("Reconciling group %s...", name)
-            discourse_req("PUT", f"groups/{existing['id']}.json", payload)
+            details = discourse_req("GET", f"groups/by-id/{existing['id']}.json")
+            before = details.get("group")
+            if not isinstance(before, dict):
+                raise ApiError(f"Could not read current settings for Discourse group {name!r}")
+            owners_response = discourse_req("GET", f"groups/{name}/members.json")
+            before_owners = owners_response.get("owners")
+            if not isinstance(before_owners, list):
+                raise ApiError(f"Could not read owners for Discourse group {name!r}")
+            changed = any(
+                not same_configuration_value(key, before.get(key), value)
+                for key, value in group.items()
+                if key in GROUP_RECONCILE_FIELDS
+            )
+            if changed or before_owners:
+                discourse_req("PUT", f"groups/{existing['id']}.json", payload)
             group_id = existing.get("id")
         else:
-            logger.info("Creating group %s...", name)
             created = discourse_req("POST", "admin/groups.json", payload)
             group_id = created.get("basic_group", created).get("id")
             groups = list_discourse_groups()
@@ -103,6 +172,18 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
             owners = members_response.get("owners")
             if not isinstance(owners, list) or owners:
                 raise ApiError(f"Discourse organiser group {name!r} must have no group owners")
+            log_resource_status(
+                name,
+                {key: value for key, value in group.items() if key in GROUP_RECONCILE_FIELDS},
+                before,
+                {"group owners": "Changed" if before_owners else "OK"},
+            )
+        else:
+            log_resource_status(
+                name,
+                {key: value for key, value in group.items() if key in GROUP_RECONCILE_FIELDS},
+                before,
+            )
         return group_id
 
     host_group_id = ensure_group(
@@ -144,7 +225,6 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
 
 
 def ensure_discourse_category(city_name: str, host_group: str, attendee_group: str, host_group_id: int) -> None:
-    logger.info("Ensuring category Events > %s...", city_name)
     desired = {
         "name": city_name,
         "parent_category_id": DISCOURSE_PARENT_CATEGORY_ID,
@@ -178,18 +258,26 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
     if len(matching_categories) > 1:
         raise ApiError(f"Multiple Discourse city categories are named {city_name!r}")
     existing = matching_categories[0] if matching_categories else None
+    before = None
     if existing:
-        discourse_req("PUT", f"categories/{existing['id']}.json", desired)
+        before_response = discourse_req("GET", f"categories/{existing['id']}.json")
+        before = before_response.get("category", before_response)
+        if not isinstance(before, dict):
+            raise ApiError(f"Could not read current settings for Discourse category {city_name!r}")
+        if any(not same_configuration_value(key, before.get(key), value) for key, value in desired.items()):
+            discourse_req("PUT", f"categories/{existing['id']}.json", desired)
     else:
         discourse_req("POST", "categories.json", desired)
     category_id = discourse_city_category_id(city_name)
     result = discourse_req("GET", f"categories/{category_id}.json")
     category = result.get("category", result)
-    if (
-        category.get("permissions") != desired["permissions"]
-        or category.get("moderating_group_ids") != desired["moderating_group_ids"]
-    ):
+    if any(not same_configuration_value(key, category.get(key), value) for key, value in desired.items()):
         raise ApiError(f"Discourse category {city_name!r} did not reconcile to city-only access")
+    log_resource_status(
+        f"Events > {city_name}",
+        desired,
+        before,
+    )
 
 
 def reconcile_organiser_category_access(
@@ -279,6 +367,13 @@ def reconcile_organiser_category_access(
                 or updated_permissions != desired_permissions
             ):
                 raise ApiError(f"Discourse category {category_id} failed access reconciliation")
+        logger.info(
+            "Discourse category %s (%s): moderator groups: %s, organiser permissions: %s",
+            detail.get("name", category_id),
+            category_id,
+            "Changed" if desired_ids != sorted(set(current_ids)) else "OK",
+            "Changed" if desired_permissions != permissions else "OK",
+        )
 
 
 def ensure_category_group_moderation_enabled() -> None:
@@ -356,7 +451,7 @@ def main() -> None:
         },
     )
 
-    logger.info("Provisioning Pretix staff team...")
+    logger.info("Reconciling Pretix staff team %s...", STAFF_TEAM_NAME)
     staff_teams = [team for team in pretix_list_all("teams") if team.get("name") == STAFF_TEAM_NAME]
     if len(staff_teams) > 1:
         raise ApiError(f"Multiple Pretix teams are named {STAFF_TEAM_NAME!r}")
@@ -369,8 +464,13 @@ def main() -> None:
         "all_organizer_permissions": False,
         "limit_organizer_permissions": [],
     }
+    previous_staff_team = staff_teams[0] if staff_teams else None
     if staff_teams:
-        pretix_req("PATCH", f"teams/{staff_teams[0]['id']}", staff_team_payload)
+        if any(
+            not same_configuration_value(key, previous_staff_team.get(key), value)
+            for key, value in staff_team_payload.items()
+        ):
+            pretix_req("PATCH", f"teams/{staff_teams[0]['id']}", staff_team_payload)
         staff_team = pretix_req("GET", f"teams/{staff_teams[0]['id']}")
     else:
         created_staff_team = pretix_req("POST", "teams", staff_team_payload)
@@ -383,8 +483,9 @@ def main() -> None:
         or staff_team.get("name") != STAFF_TEAM_NAME
     ):
         raise ApiError(f"Pretix staff team {STAFF_TEAM_NAME!r} did not reconcile to the requested settings")
+    log_resource_status(STAFF_TEAM_NAME, staff_team_payload, previous_staff_team)
 
-    logger.info("Provisioning regional Pretix Teams...")
+    logger.info("Reconciling regional Pretix Teams...")
     all_teams = pretix_list_all("teams")
     all_events = pretix_list_all("events")
     teams_by_name: dict[str, list[dict]] = {}
@@ -420,11 +521,16 @@ def main() -> None:
         existing = teams_by_name.get(city.team_name, [])
         if len(existing) > 1:
             raise ApiError(f"Multiple Pretix teams are named {city.team_name!r}")
+        previous_team = existing[0] if existing else None
         if existing:
             team_id = existing[0].get("id")
             if not isinstance(team_id, int):
                 raise ApiError(f"Pretix team {city.team_name!r} has an invalid ID")
-            pretix_req("PATCH", f"teams/{team_id}", desired_team)
+            if any(
+                not same_configuration_value(field, previous_team.get(field), value)
+                for field, value in desired_team.items()
+            ):
+                pretix_req("PATCH", f"teams/{team_id}", desired_team)
         else:
             created_team = pretix_req(
                 "POST",
@@ -450,6 +556,7 @@ def main() -> None:
             actual_values = actual_team.get(field)
             if not isinstance(actual_values, list) or set(actual_values) != set(desired_team[field]):
                 raise ApiError(f"Pretix team {city.team_name!r} did not reconcile field {field!r}")
+        log_resource_status(city.team_name, desired_team, previous_team)
 
     props_resp = pretix_req("GET", "event_meta_properties")
     if props_resp:
