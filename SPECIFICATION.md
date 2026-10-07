@@ -118,7 +118,6 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 | `name_scheme` | `"full"` | Single name field (not given/family) |
 | `order_email_asked_twice` | `False` | No email confirmation step |
 | `payment_term_last` | `null` | No payment deadline (free) |
-| `checkout_show_copy_answers_button` | `False` | Irrelevant with max 1 item |
 
 **Template Event Properties:**
 
@@ -717,7 +716,6 @@ The Pretix checkout flow for authenticated attendees is:
 | `name_scheme` | `"full"` | Single name field |
 | `order_email_asked_twice` | `false` | No "confirm email" step |
 | `payment_term_last` | `null` | No payment deadline |
-| `checkout_show_copy_answers_button` | `false` | Irrelevant with 1-item orders |
 
 ---
 

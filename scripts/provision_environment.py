@@ -666,7 +666,6 @@ def main() -> None:
                 "name_scheme": "full",
                 "order_email_asked_twice": False,
                 "payment_term_last": None,
-                "checkout_show_copy_answers_button": False,
                 # Forum topic is the canonical event page; Pretix is the checkout
                 # flow and should not compete in search results.
                 "meta_noindex": True,
