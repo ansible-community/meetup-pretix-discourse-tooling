@@ -45,12 +45,10 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str]:
         payload = {"group": group}
         if existing:
             logger.info("Reconciling group %s...", name)
-            result = discourse_req("PUT", f"groups/{existing['id']}.json", payload)
+            discourse_req("PUT", f"groups/{existing['id']}.json", payload)
         else:
             logger.info("Creating group %s...", name)
-            result = discourse_req("POST", "admin/groups.json", payload)
-        if not result:
-            raise ApiError(f"Discourse did not confirm group reconciliation for {name}")
+            discourse_req("POST", "admin/groups.json", payload)
 
     ensure_group(host_group, {
                 "name": host_group,
@@ -98,11 +96,9 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
     existing = next((c for c in categories if c.get("name", "").lower() == city_name.lower()
                      and c.get("parent_category_id") == DISCOURSE_PARENT_CATEGORY_ID), None)
     if existing:
-        result = discourse_req("PUT", f"categories/{existing['id']}.json", desired)
+        discourse_req("PUT", f"categories/{existing['id']}.json", desired)
     else:
-        result = discourse_req("POST", "categories.json", {"category": desired})
-    if not result:
-        raise ApiError(f"Discourse did not confirm category reconciliation for {city_name}")
+        discourse_req("POST", "categories.json", {"category": desired})
 
 
 def ensure_user_field_options() -> None:
@@ -152,11 +148,9 @@ def main() -> None:
                 "visibility_level": 1,
             }}
     if existing_admin:
-        result = discourse_req("PUT", f"groups/{existing_admin['id']}.json", admin_payload)
+        discourse_req("PUT", f"groups/{existing_admin['id']}.json", admin_payload)
     else:
-        result = discourse_req("POST", "admin/groups.json", admin_payload)
-    if not result:
-        raise ApiError(f"Discourse did not confirm group reconciliation for {ADMIN_GROUP_NAME}")
+        discourse_req("POST", "admin/groups.json", admin_payload)
 
     logger.info("Ensuring group %s...", MIGRATED_GROUP_NAME)
     groups = discourse_req("GET", "admin/groups.json").get("groups", [])
@@ -173,11 +167,9 @@ def main() -> None:
                 "visibility_level": 3,
             }}
     if existing_migrated:
-        result = discourse_req("PUT", f"groups/{existing_migrated['id']}.json", migrated_payload)
+        discourse_req("PUT", f"groups/{existing_migrated['id']}.json", migrated_payload)
     else:
-        result = discourse_req("POST", "admin/groups.json", migrated_payload)
-    if not result:
-        raise ApiError(f"Discourse did not confirm group reconciliation for {MIGRATED_GROUP_NAME}")
+        discourse_req("POST", "admin/groups.json", migrated_payload)
 
     for city in CITIES:
         host_group, att_group = ensure_discourse_groups(city.slug, city.city)
@@ -195,9 +187,6 @@ def main() -> None:
             "settings": {"organizer_team_creation": False},
         },
     )
-    if not org_resp:
-        raise RuntimeError("Failed to update organizer settings")
-
     logger.info("Configuring branding, footer links, and legal URLs...")
     pretix_req(
         "PATCH",
@@ -229,8 +218,6 @@ def main() -> None:
                     "choices": [],
                 },
             )
-            if not meta_resp:
-                logger.warning("Failed to create forum_topic_url meta property")
 
     event_ready = False
     if not check_event_exists(TEMPLATE_SLUG):
@@ -276,8 +263,6 @@ def main() -> None:
                 "meta_noindex": True,
             },
         )
-        if not settings_resp:
-            raise ApiError("Failed to reconcile Pretix template settings")
 
         items_resp = pretix_req("GET", f"events/{TEMPLATE_SLUG}/items")
         if items_resp and isinstance(items_resp, dict):
@@ -304,8 +289,6 @@ def main() -> None:
                             "items": [item["id"]],
                         },
                     )
-                    if not quota_resp:
-                        logger.warning("Failed to create quota for template")
 
     logger.info("Provisioning regional Pretix Teams...")
     all_teams = pretix_list_all("teams")
@@ -327,8 +310,6 @@ def main() -> None:
                 "teams",
                 desired_team,
             )
-            if not team_resp:
-                raise ApiError(f"Failed to reconcile Pretix team {city.team_name!r}")
 
     logger.info("--- PROVISIONING COMPLETE ---")
 

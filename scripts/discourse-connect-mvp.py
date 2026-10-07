@@ -265,7 +265,7 @@ PAGE = """<html><body style="font-family:sans-serif">
 <tr><td>all groups (payload)</td><td>{{ s.all_groups|join(', ') }}</td></tr>
 <tr><td>groups (admin API)</td><td>{{ s.api_groups|join(', ') or '(n/a)' }}</td></tr>
 <tr><td>meetup groups</td><td>{{ s.meetup_groups|join(', ') or '(none)' }}</td></tr>
-<tr><td>host groups</td><td>{{ s.host_groups|join(', ') or '(none)' }}</td></tr>
+<tr><td>organiser groups</td><td>{{ s.organiser_groups|join(', ') or '(none)' }}</td></tr>
 <tr><td>cities</td><td>{{ s.cities|join(', ') or '(none)' }}</td></tr>
 <tr><td>badges</td><td>{{ s.badges|join(', ') or '(none)' }}</td></tr>
 <tr><td>meetup badges</td><td>{{ s.meetup_badges|join(', ') or '(none)' }}</td></tr>

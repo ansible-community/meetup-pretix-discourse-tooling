@@ -255,17 +255,17 @@ class TestCityInfoDerivedProperties:
         city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
         assert city.team_name == f"{ORGANISER_TEAM_PREFIX} - London"
 
-    def test_host_group(self) -> None:
+    def test_organiser_group(self) -> None:
         city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
-        assert city.host_group == "meetup-host-london"
+        assert city.organiser_group == "meetup-organisers-london"
 
     def test_attendee_group(self) -> None:
         city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
         assert city.attendee_group == "meetup-attendee-london"
 
-    def test_host_group_with_spaces(self) -> None:
+    def test_organiser_group_with_spaces(self) -> None:
         city = CityInfo(region="Americas", country="US", city="New York", timezone="America/New_York")
-        assert city.host_group == "meetup-host-new-york"
+        assert city.organiser_group == "meetup-organisers-new-york"
 
     def test_team_name_preserves_case(self) -> None:
         city = CityInfo(region="Europe", country="UK", city="FakeTown", timezone="Europe/London")
