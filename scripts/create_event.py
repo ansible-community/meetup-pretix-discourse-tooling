@@ -129,6 +129,18 @@ def main() -> None:
     city_info = get_city(args.city)
     if not CITY_NAME_RE.fullmatch(args.city) or city_info is None:
         parser.error(f"Unknown or invalid city {args.city!r}; add lowercase city name to ansible_events_lib.py")
+
+    try:
+        dt = datetime.fromisoformat(args.date.rstrip("Z"))
+    except ValueError:
+        parser.error("Invalid --date; use local time in YYYY-MM-DDTHH:MM:SS format")
+    if dt.tzinfo is not None:
+        parser.error("--date must be local time without a timezone offset")
+    if args.capacity <= 0:
+        parser.error("--capacity must be a positive integer")
+    if not re.fullmatch(r"[a-zA-Z0-9_.-]+", args.organiser):
+        parser.error("--organiser must be a valid Discourse username")
+
     pre_flight_checks()
 
     event_timezone = city_info.timezone
@@ -145,7 +157,6 @@ def main() -> None:
         logger.error("User %r is not in group %r. Add them to the group first.", args.organiser, expected_group)
         raise SystemExit(1)
 
-    dt = datetime.fromisoformat(args.date.rstrip("Z"))
     end_dt = dt + timedelta(hours=3)
 
     start_str = dt.strftime("%Y-%m-%dT%H:%M:%S")

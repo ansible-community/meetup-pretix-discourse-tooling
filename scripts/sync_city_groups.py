@@ -68,11 +68,7 @@ def attendee_group_for_value(value: str) -> str | None:
     """Map 'region:country:city' to 'meetup-attendee-{slug}'."""
     if value in CITY_BY_VALUE:
         return CITY_BY_VALUE[value].attendee_group
-    parts = value.split(":")
-    if len(parts) == 3:
-        slug = parts[-1].strip().lower().replace(" ", "-")
-        return f"{ATTENDEE_GROUP_PREFIX}-{slug}"
-    logger.warning("Unrecognised field value %r (expected region:country:city)", value)
+    logger.warning("Unregistered city field value %r; add the city to CITIES before syncing", value)
     return None
 
 
