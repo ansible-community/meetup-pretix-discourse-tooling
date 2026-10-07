@@ -94,6 +94,15 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
             "reviewable_by_group_name": host_group,
         }
     categories = discourse_req("GET", "categories.json").get("category_list", {}).get("categories", [])
+
+    def flatten(rows: list[dict]) -> list[dict]:
+        result = []
+        for row in rows:
+            result.append(row)
+            result.extend(flatten(row.get("subcategory_list", row.get("subcategories", []))))
+        return result
+
+    categories = flatten(categories)
     existing = next((c for c in categories if c.get("name", "").lower() == city_name.lower()
                      and c.get("parent_category_id") == DISCOURSE_PARENT_CATEGORY_ID), None)
     if existing:
