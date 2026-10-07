@@ -5,33 +5,31 @@ Target  : https://forum.ansible.com
 
 v2 policy
 ---------
-* Login does NOT request `require_2fa` by default (no 2FA prompt on every access).
+* Login always requests `require_2fa=true`.
 * After a verified SSO exchange we enrich from the Discourse ADMIN API
   (/admin/users/{id}.json) with an admin read-only API key:
-      - second_factor_enabled : does this ACCOUNT have 2FA configured?
       - silenced / suspended / staged / trust_level / groups / badges
 * A user is BLOCKED if any of:
       silenced (muted)                 -> "blocked: moderation (silenced)"
       suspended                        -> "blocked: suspended"  (rare: SSO shouldn't reach here)
       RTBF / anonymised email pattern  -> "blocked: RTBF (anonymised)"
-      privileged (admin OR meetup-host-*) AND second_factor_enabled=False
-                                       -> "blocked: privileged but 2FA not enabled"
+      privileged (meetup-staff OR meetup-organisers-{city}) without confirmed_2fa=true
+                                       -> "blocked: DiscourseConnect did not confirm 2FA"
 * Otherwise permission (highest wins): admin > host(city list) > regular.
 * Regular users can always log in (every Discourse user can buy a ticket).
 
 Endpoints:
   /            landing: login link + last analysis summary
-  /login       start SSO (optional require_2fa via REQUIRE_2FA=1)
+  /login       start SSO with required 2FA
   /callback    verify sig + nonce -> analyse -> summary (+ always show raw payload)
   /debug       dump last payload, admin API JSON, session, config
   /logout      clear local session
 
 Env:
   DISCOURSE_SSO_SECRET     (required) provider secret string
-  DISCOURSE_API_KEY        (optional) admin read-only API key (needed for 2FA/status)
+  DISCOURSE_API_KEY        (optional for this diagnostic tool; required by the Pretix plugin)
   CALLBACK_URL             http://localhost:5000/callback (default)
   FLASK_SECRET             fixed dev secret (sessions survive restarts)
-  REQUIRE_2FA              0 (default) | 1 -> send require_2fa=true (challenge mode, debugging only)
 
 Run:
   export DISCOURSE_SSO_SECRET='...'
@@ -61,9 +59,9 @@ SSO_SECRET = os.environ["DISCOURSE_SSO_SECRET"]  # required, fails fast
 CALLBACK_URL = os.environ.get("CALLBACK_URL", "http://localhost:5000/callback")
 API_KEY = os.environ.get("DISCOURSE_API_KEY")
 API_USER = "system"
-REQUIRE_2FA = os.environ.get("REQUIRE_2FA", "0") == "1"
-ENFORCE_2FA = True
-HOST_PREFIX = "meetup-host"
+REQUIRE_2FA = True
+STAFF_GROUP = "meetup-staff"
+ORGANIZERS_GROUP_RE = re.compile(r"^meetup-organisers-([a-z]+)$")
 MEETUP_KEYWORD = "meetup"
 
 _last = {"status": "no callback yet", "payload": {}, "summary": {}, "admin_api": {}}
@@ -159,19 +157,20 @@ def is_suspended(api_data: dict) -> bool:
 def analyse(data: dict) -> dict:
     external_id = data.get("external_id", "")
     groups_set = {g for g in data.get("groups", "").split(",") if g}
-    host_groups = sorted(g for g in groups_set if g.lower().startswith(HOST_PREFIX))
-    cities = [g.split("-", 2)[-1] for g in host_groups]
+    organiser_groups = sorted(g for g in groups_set if ORGANIZERS_GROUP_RE.fullmatch(g))
+    cities = [ORGANIZERS_GROUP_RE.fullmatch(g).group(1) for g in organiser_groups]
     meetup_groups = sorted(g for g in groups_set if MEETUP_KEYWORD in g.lower())
 
-    is_admin = data.get("admin") == "true"
+    is_admin = STAFF_GROUP in groups_set
     is_mod = data.get("moderator") == "true"
-    privileged = is_admin or bool(host_groups)
+    privileged = is_admin or bool(organiser_groups)
 
     # Admin API enrichment (only when API key set)
     api = fetch_admin_user(external_id)
     _last["admin_api"] = api
     twofa_enabled = api.get("second_factor_enabled")
     twofa_known = twofa_enabled is not None
+    confirmed_2fa = data.get("confirmed_2fa") == "true"
     silenced = is_silenced(api)
     silenced_till = api.get("silenced_till")
     suspended = is_suspended(api)
@@ -196,18 +195,15 @@ def analyse(data: dict) -> dict:
     if rtbf:
         blocked = True
         reasons.append("RTBF: anonymised (block future ticket purchase)")
-    if ENFORCE_2FA and privileged and not twofa_enabled:
+    if privileged and not confirmed_2fa:
         blocked = True
-        reasons.append(
-            "privileged (admin/host) but second_factor_enabled=False"
-            + ("" if twofa_known else " [2FA state unknown: set DISCOURSE_API_KEY]")
-        )
+        reasons.append("privileged but DiscourseConnect did not confirm 2FA")
 
     if blocked:
         permission = "blocked"
     elif is_admin:
         permission = "admin"
-    elif host_groups:
+    elif organiser_groups:
         permission = "host (" + ", ".join(cities) + ")"
     else:
         permission = "regular"
@@ -223,12 +219,13 @@ def analyse(data: dict) -> dict:
         "all_groups": sorted(groups_set),
         "api_groups": api_groups,
         "meetup_groups": meetup_groups,
-        "host_groups": host_groups,
+        "organiser_groups": organiser_groups,
         "cities": cities,
         "badges": badges,
         "meetup_badges": meetup_badges,
         "second_factor_enabled": twofa_enabled,
         "twofa_known": twofa_known,
+        "confirmed_2fa": confirmed_2fa,
         "silenced": silenced,
         "silenced_till": silenced_till,
         "suspended": suspended,
@@ -296,7 +293,7 @@ def rows_of(d: dict):
 def home():
     return render_template_string(
         PAGE,
-        require_2fa=REQUIRE_2FA or not ENFORCE_2FA,
+        require_2fa=REQUIRE_2FA,
         s=_last.get("summary"),
         rows=rows_of(_last.get("payload", {})),
     )

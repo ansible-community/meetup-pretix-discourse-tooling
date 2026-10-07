@@ -20,6 +20,7 @@ from ansible_events_lib import (
     DISCOURSE_PARENT_CATEGORY_ID,
     EVENTS_FORUM_URL,
     MIGRATED_GROUP_NAME,
+    ORGANISERS_GROUP_PREFIX,
     ORGANISER_PERMISSIONS,
     PRIVACY_POLICY_URL,
     TEMPLATE_PLUGINS,
@@ -35,7 +36,7 @@ from ansible_events_lib import (
 
 
 def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str]:
-    host_group = f"meetup-host-{city_slug}"
+    host_group = f"{ORGANISERS_GROUP_PREFIX}-{city_slug}"
     attendee_group = f"meetup-attendee-{city_slug}"
 
     def ensure_group(name: str, group: dict) -> None:

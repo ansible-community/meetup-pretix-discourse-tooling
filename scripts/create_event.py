@@ -16,7 +16,7 @@ from ansible_events_lib import (
     DISCOURSE_URL,
     EVENT_NAME_PREFIX,
     EVENTS_FORUM_URL,
-    HOST_GROUP_PREFIX,
+    ORGANISERS_GROUP_PREFIX,
     ORGANISER_PERMISSIONS,
     ORGANISER_TEAM_PREFIX,
     ORGANIZER_SLUG,
@@ -133,7 +133,7 @@ def main() -> None:
     event_timezone = city_info.timezone
     city_title = city_info.city
     city_slug = city_info.slug
-    expected_group = f"{HOST_GROUP_PREFIX}-{city_slug}"
+    expected_group = f"{ORGANISERS_GROUP_PREFIX}-{city_slug}"
 
     logger.info("Validating organiser @%s...", args.organiser)
     if not discourse_user_exists(args.organiser):

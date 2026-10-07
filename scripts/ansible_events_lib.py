@@ -38,7 +38,7 @@ DISCOURSE_EVENTS_CATEGORY_ID = 14
 # --- Naming ---
 EVENT_NAME_PREFIX = "Ansible Meetup"
 ORGANISER_TEAM_PREFIX = "Ansible Meetup Organisers"
-HOST_GROUP_PREFIX = "meetup-host"
+ORGANISERS_GROUP_PREFIX = "meetup-organisers"
 ATTENDEE_GROUP_PREFIX = "meetup-attendee"
 ADMIN_GROUP_NAME = "meetup-staff"
 MIGRATED_GROUP_NAME = "meetup-migrated-from-meetup-pro"
@@ -90,8 +90,8 @@ class CityInfo:
         return f"{ORGANISER_TEAM_PREFIX} - {self.city}"
 
     @property
-    def host_group(self) -> str:
-        return f"{HOST_GROUP_PREFIX}-{self.slug}"
+    def organiser_group(self) -> str:
+        return f"{ORGANISERS_GROUP_PREFIX}-{self.slug}"
 
     @property
     def attendee_group(self) -> str:
