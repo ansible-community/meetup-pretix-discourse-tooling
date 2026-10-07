@@ -54,7 +54,7 @@ STAFF_TEAM_NAME = "Ansible Meetup Staff"
 GROUP_VISIBILITY_OWNERS_ONLY = 4
 GROUP_VISIBILITY_STAFF_ONLY = 3
 MIGRATED_GROUP_NAME = "meetup-migrated-from-meetup-pro"
-CITY_NAME_RE = re.compile(r"^[a-z]+$")
+CITY_SLUG_RE = re.compile(r"^[a-z]+$")
 ORGANIZERS_GROUP_RE = re.compile(r"^meetup-organisers-([a-z]+)$")
 MONTH_SLUGS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 EVENT_SLUG_RE = re.compile(rf"^([a-z]+)-({'|'.join(MONTH_SLUGS)})-[0-9]{{4}}$")
@@ -89,7 +89,7 @@ class CityInfo:
     timezone: str
 
     def __post_init__(self) -> None:
-        if not CITY_NAME_RE.fullmatch(self.slug):
+        if not CITY_SLUG_RE.fullmatch(self.slug):
             raise ValueError(f"City slug must contain lowercase ASCII letters only: {self.slug!r}")
         if not self.city.strip() or not self.region.strip() or not self.country.strip():
             raise ValueError("City display name, region, and country must not be empty")
@@ -134,7 +134,7 @@ if len({city.city.casefold() for city in CITIES}) != len(CITIES):
 
 def get_city(name: str) -> CityInfo | None:
     """Look up a registered city slug. Returns None for malformed or unknown names."""
-    if not CITY_NAME_RE.fullmatch(name):
+    if not CITY_SLUG_RE.fullmatch(name):
         return None
     for c in CITIES:
         if c.slug == name:

@@ -58,7 +58,10 @@ def list_discourse_groups() -> list[dict]:
         page += 1
 
 
-GROUP_SECURITY_FIELDS = (
+GROUP_RECONCILE_FIELDS = (
+    "name",
+    "full_name",
+    "bio_raw",
     "visibility_level",
     "members_visibility_level",
     "public_admission",
@@ -73,7 +76,10 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
 
     def ensure_group(name: str, group: dict) -> int:
         groups = list_discourse_groups()
-        existing = next((item for item in groups if item.get("name") == name), None)
+        matches = [item for item in groups if item.get("name") == name]
+        if len(matches) > 1:
+            raise ApiError(f"Multiple Discourse groups are named {name!r}")
+        existing = matches[0] if matches else None
         payload = {"group": group}
         if existing:
             logger.info("Reconciling group %s...", name)
@@ -89,75 +95,106 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
                 group_id = created.get("id")
         if not isinstance(group_id, int):
             raise ApiError(f"Could not resolve Discourse group ID for {name!r}")
-        actual = next((item for item in list_discourse_groups() if item.get("id") == group_id), None)
+        response = discourse_req("GET", f"groups/by-id/{group_id}.json")
+        actual = response.get("group")
         if actual is None or any(
             actual.get(key) != group[key]
-            for key in GROUP_SECURITY_FIELDS
+            for key in GROUP_RECONCILE_FIELDS
             if key in group
         ):
-            raise ApiError(f"Discourse group {name!r} did not reconcile to the requested settings")
+            raise ApiError(
+                f"Discourse group {name!r} did not reconcile to the requested settings"
+            )
+        if name.startswith(f"{ORGANISERS_GROUP_PREFIX}-"):
+            members_response = discourse_req("GET", f"groups/{name}/members.json")
+            owners = members_response.get("owners")
+            if not isinstance(owners, list) or owners:
+                raise ApiError(
+                    f"Discourse organiser group {name!r} must have no group owners"
+                )
         return group_id
 
-    host_group_id = ensure_group(host_group, {
-                "name": host_group,
-                "full_name": f"Ansible Meetup Organisers - {city_name}",
-                "bio_raw": (
-                    f"Organisers for Ansible Community Meetups in {city_name}.\n\n"
-                    "**Requirements:** Members must have 2FA enabled on their forum account "
-                    "and be approved by the Community Engineering lead.\n\n"
-                    "This group grants Category Moderator rights on the "
-                    f"{city_name} Events subcategory and scoped access to the "
-                    "Pretix event dashboard (attendee list + check-in)."
-                ),
-                "visibility_level": GROUP_VISIBILITY_OWNERS_ONLY,
-                "members_visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
-                "public_admission": False,
-                "allow_membership_requests": False,
-                "automatic_membership_email_domains": "",
-                "owner_usernames": "",
-            })
-    ensure_group(attendee_group, {
-                "name": attendee_group,
-                "full_name": f"Ansible Meetup Attendees - {city_name}",
-                "bio_raw": (
-                    f"Notification subscription group for Ansible Meetup events in {city_name}.\n\n"
-                    "Members receive notifications when new events are posted. "
-                    "Membership is hidden (visible to forum admins only) to protect location privacy."
-                ),
-                "visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
-                "members_visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
-            })
+    host_group_id = ensure_group(
+        host_group,
+        {
+            "name": host_group,
+            "full_name": f"Ansible Meetup Organisers - {city_name}",
+            "bio_raw": (
+                f"Organisers for Ansible Community Meetups in {city_name}.\n\n"
+                "**Requirements:** Members must have 2FA enabled on their forum account "
+                "and be approved by the Community Engineering lead.\n\n"
+                "This group grants Category Moderator rights on the "
+                f"{city_name} Events subcategory and scoped access to the "
+                "Pretix event dashboard (attendee list + check-in)."
+            ),
+            "visibility_level": GROUP_VISIBILITY_OWNERS_ONLY,
+            "members_visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
+            "public_admission": False,
+            "allow_membership_requests": False,
+            "automatic_membership_email_domains": "",
+            "owner_usernames": "",
+        },
+    )
+    ensure_group(
+        attendee_group,
+        {
+            "name": attendee_group,
+            "full_name": f"Ansible Meetup Attendees - {city_name}",
+            "bio_raw": (
+                f"Notification subscription group for Ansible Meetup events in {city_name}.\n\n"
+                "Members receive notifications when new events are posted. "
+                "Membership is hidden (visible to forum admins only) to protect location privacy."
+            ),
+            "visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
+            "members_visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
+        },
+    )
     return host_group, attendee_group, host_group_id
 
 
-def ensure_discourse_category(city_name: str, host_group: str, attendee_group: str, host_group_id: int) -> None:
+def ensure_discourse_category(
+    city_name: str, host_group: str, attendee_group: str, host_group_id: int
+) -> None:
     logger.info("Ensuring category Events > %s...", city_name)
     desired = {
-            "name": city_name,
-            "parent_category_id": DISCOURSE_PARENT_CATEGORY_ID,
-            "color": "EE0000",
-            "text_color": "FFFFFF",
-            "description": (
-                f"Ansible Community Meetup events in {city_name}. "
-                f"Free, in-person meetups for automation enthusiasts — "
-                f"talks, networking, and community. "
-                f"RSVP to upcoming Ansible Meetup {city_name} events below."
-            ),
-            "permissions": {"everyone": 1, host_group: 1, attendee_group: 1},
-            "moderating_group_ids": [host_group_id],
-        }
-    categories = discourse_req("GET", "categories.json").get("category_list", {}).get("categories", [])
+        "name": city_name,
+        "parent_category_id": DISCOURSE_PARENT_CATEGORY_ID,
+        "color": "EE0000",
+        "text_color": "FFFFFF",
+        "description": (
+            f"Ansible Community Meetup events in {city_name}. "
+            f"Free, in-person meetups for automation enthusiasts — "
+            f"talks, networking, and community. "
+            f"RSVP to upcoming Ansible Meetup {city_name} events below."
+        ),
+        "permissions": {"everyone": 1, host_group: 1, attendee_group: 1},
+        "moderating_group_ids": [host_group_id],
+    }
+    categories = (
+        discourse_req("GET", "categories.json")
+        .get("category_list", {})
+        .get("categories", [])
+    )
 
     def flatten(rows: list[dict]) -> list[dict]:
         result = []
         for row in rows:
             result.append(row)
-            result.extend(flatten(row.get("subcategory_list", row.get("subcategories", []))))
+            result.extend(
+                flatten(row.get("subcategory_list", row.get("subcategories", [])))
+            )
         return result
 
     categories = flatten(categories)
-    existing = next((c for c in categories if c.get("name", "").lower() == city_name.lower()
-                     and c.get("parent_category_id") == DISCOURSE_PARENT_CATEGORY_ID), None)
+    matching_categories = [
+        category
+        for category in categories
+        if category.get("name", "").lower() == city_name.lower()
+        and category.get("parent_category_id") == DISCOURSE_PARENT_CATEGORY_ID
+    ]
+    if len(matching_categories) > 1:
+        raise ApiError(f"Multiple Discourse city categories are named {city_name!r}")
+    existing = matching_categories[0] if matching_categories else None
     if existing:
         discourse_req("PUT", f"categories/{existing['id']}.json", desired)
     else:
@@ -169,7 +206,9 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
         category.get("permissions") != desired["permissions"]
         or category.get("moderating_group_ids") != desired["moderating_group_ids"]
     ):
-        raise ApiError(f"Discourse category {city_name!r} did not reconcile to city-only access")
+        raise ApiError(
+            f"Discourse category {city_name!r} did not reconcile to city-only access"
+        )
 
 
 def reconcile_organiser_category_access(
@@ -186,12 +225,16 @@ def reconcile_organiser_category_access(
     def flatten(rows: list) -> None:
         for row in rows:
             if not isinstance(row, dict):
-                raise ApiError("Discourse categories response contains an invalid category")
+                raise ApiError(
+                    "Discourse categories response contains an invalid category"
+                )
             categories.append(row)
             children = row.get("subcategory_list", row.get("subcategories", []))
             if children is not None:
                 if not isinstance(children, list):
-                    raise ApiError("Discourse categories response contains invalid subcategories")
+                    raise ApiError(
+                        "Discourse categories response contains invalid subcategories"
+                    )
                 flatten(children)
 
     flatten(roots)
@@ -201,23 +244,37 @@ def reconcile_organiser_category_access(
         if not isinstance(group, dict):
             raise ApiError("Discourse groups response contains an invalid group")
         group_name = group.get("name")
-        if isinstance(group_name, str) and group_name.startswith(f"{ORGANISERS_GROUP_PREFIX}-"):
+        if isinstance(group_name, str) and group_name.startswith(
+            f"{ORGANISERS_GROUP_PREFIX}-"
+        ):
             group_id = group.get("id")
             if not isinstance(group_id, int):
-                raise ApiError("Discourse organiser group response contains an invalid ID")
+                raise ApiError(
+                    "Discourse organiser group response contains an invalid ID"
+                )
             managed_group_ids.add(group_id)
 
     for category in categories:
         category_id = category.get("id")
         if not isinstance(category_id, int):
-            raise ApiError("Discourse categories response contains an invalid category ID")
+            raise ApiError(
+                "Discourse categories response contains an invalid category ID"
+            )
         detail = discourse_req("GET", f"categories/{category_id}.json")
         detail = detail.get("category", detail)
-        current_ids = detail.get("moderating_group_ids") if isinstance(detail, dict) else None
-        if not isinstance(current_ids, list) or any(not isinstance(group_id, int) for group_id in current_ids):
-            raise ApiError(f"Discourse category {category_id} returned invalid moderator group IDs")
+        current_ids = (
+            detail.get("moderating_group_ids") if isinstance(detail, dict) else None
+        )
+        if not isinstance(current_ids, list) or any(
+            not isinstance(group_id, int) for group_id in current_ids
+        ):
+            raise ApiError(
+                f"Discourse category {category_id} returned invalid moderator group IDs"
+            )
 
-        desired_ids = [group_id for group_id in current_ids if group_id not in managed_group_ids]
+        desired_ids = [
+            group_id for group_id in current_ids if group_id not in managed_group_ids
+        ]
         city_access_for_category = city_access.get(category_id)
         if city_access_for_category is not None:
             _, city_group_id = city_access_for_category
@@ -232,11 +289,15 @@ def reconcile_organiser_category_access(
 
         permissions = detail.get("permissions") if isinstance(detail, dict) else None
         if not isinstance(permissions, dict):
-            raise ApiError(f"Discourse category {category_id} returned invalid permissions")
+            raise ApiError(
+                f"Discourse category {category_id} returned invalid permissions"
+            )
         desired_permissions = {
             name: level
             for name, level in permissions.items()
-            if not (isinstance(name, str) and name.startswith(f"{ORGANISERS_GROUP_PREFIX}-"))
+            if not (
+                isinstance(name, str) and name.startswith(f"{ORGANISERS_GROUP_PREFIX}-")
+            )
         }
         if city_access_for_category is not None:
             city_group_name, _ = city_access_for_category
@@ -248,7 +309,10 @@ def reconcile_organiser_category_access(
                 {"permissions": desired_permissions},
             )
 
-        if desired_ids != sorted(set(current_ids)) or desired_permissions != permissions:
+        if (
+            desired_ids != sorted(set(current_ids))
+            or desired_permissions != permissions
+        ):
             updated = discourse_req("GET", f"categories/{category_id}.json")
             updated = updated.get("category", updated)
             updated_ids = updated.get("moderating_group_ids")
@@ -258,7 +322,9 @@ def reconcile_organiser_category_access(
                 or sorted(set(updated_ids)) != desired_ids
                 or updated_permissions != desired_permissions
             ):
-                raise ApiError(f"Discourse category {category_id} failed access reconciliation")
+                raise ApiError(
+                    f"Discourse category {category_id} failed access reconciliation"
+                )
 
 
 def ensure_category_group_moderation_enabled() -> None:
@@ -271,7 +337,11 @@ def ensure_category_group_moderation_enabled() -> None:
     if not isinstance(settings, list):
         raise ApiError("Could not verify Discourse category group moderation setting")
     setting = next(
-        (item for item in settings if item.get("setting") == "enable_category_group_moderation"),
+        (
+            item
+            for item in settings
+            if item.get("setting") == "enable_category_group_moderation"
+        ),
         None,
     )
     if not setting or str(setting.get("value")).lower() != "true":
@@ -309,41 +379,8 @@ def ensure_user_field_options() -> None:
 
 def main() -> None:
     pre_flight_checks()
-    ensure_category_group_moderation_enabled()
 
-    logger.info("--- 1. DISCOURSE PROVISIONING ---")
-
-    logger.info("Ensuring group %s...", MIGRATED_GROUP_NAME)
-    groups = list_discourse_groups()
-    existing_migrated = next((g for g in groups if g.get("name") == MIGRATED_GROUP_NAME), None)
-    migrated_payload = {"group": {
-                "name": MIGRATED_GROUP_NAME,
-                "full_name": "Ansible Meetup - Migrated from Meetup Pro",
-                "bio_raw": (
-                    "People who have migrated from Meetup Pro (meetup.com/pro/ansible) "
-                    "to the community-owned meetup platform.\n\n"
-                    "This group is used for tracking migration progress. "
-                    "Membership is managed automatically via invite links."
-                ),
-                "visibility_level": 3,
-            }}
-    if existing_migrated:
-        discourse_req("PUT", f"groups/{existing_migrated['id']}.json", migrated_payload)
-    else:
-        discourse_req("POST", "admin/groups.json", migrated_payload)
-
-    city_access = {}
-    for city in CITIES:
-        host_group, att_group, host_group_id = ensure_discourse_groups(city.slug, city.city)
-        ensure_discourse_category(city.city, host_group, att_group, host_group_id)
-        city_category_id = discourse_city_category_id(city.city)
-        city_access[city_category_id] = (host_group, host_group_id)
-
-    reconcile_organiser_category_access(city_access)
-
-    ensure_user_field_options()
-
-    logger.info("--- 2. PRETIX PROVISIONING ---")
+    logger.info("--- 1. PRETIX PROVISIONING ---")
     pretix_req(
         "PATCH",
         "",
@@ -370,6 +407,117 @@ def main() -> None:
             },
         },
     )
+
+    logger.info("Provisioning Pretix staff team...")
+    staff_teams = [
+        team for team in pretix_list_all("teams") if team.get("name") == STAFF_TEAM_NAME
+    ]
+    if len(staff_teams) > 1:
+        raise ApiError(f"Multiple Pretix teams are named {STAFF_TEAM_NAME!r}")
+    staff_team_payload = {
+        "name": STAFF_TEAM_NAME,
+        "all_events": True,
+        "limit_events": [],
+        "all_event_permissions": True,
+        "limit_event_permissions": [],
+        "all_organizer_permissions": False,
+        "limit_organizer_permissions": [],
+    }
+    if staff_teams:
+        pretix_req("PATCH", f"teams/{staff_teams[0]['id']}", staff_team_payload)
+        staff_team = pretix_req("GET", f"teams/{staff_teams[0]['id']}")
+    else:
+        created_staff_team = pretix_req("POST", "teams", staff_team_payload)
+        staff_team_id = created_staff_team.get("id")
+        if not isinstance(staff_team_id, int):
+            raise ApiError(f"Could not resolve Pretix staff team {STAFF_TEAM_NAME!r}")
+        staff_team = pretix_req("GET", f"teams/{staff_team_id}")
+    if (
+        any(
+            staff_team.get(key) != value
+            for key, value in staff_team_payload.items()
+            if key != "name"
+        )
+        or staff_team.get("name") != STAFF_TEAM_NAME
+    ):
+        raise ApiError(
+            f"Pretix staff team {STAFF_TEAM_NAME!r} did not reconcile to the requested settings"
+        )
+
+    logger.info("Provisioning regional Pretix Teams...")
+    all_teams = pretix_list_all("teams")
+    all_events = pretix_list_all("events")
+    teams_by_name: dict[str, list[dict]] = {}
+    for team in all_teams:
+        name = team.get("name")
+        if not isinstance(name, str):
+            raise ApiError("Pretix teams response contains a team without a valid name")
+        teams_by_name.setdefault(name, []).append(team)
+    for city in CITIES:
+        if any(
+            isinstance(event.get("slug"), str)
+            and event["slug"].startswith(f"{city.slug}-")
+            and not EVENT_SLUG_RE.fullmatch(event["slug"])
+            for event in all_events
+        ):
+            raise ApiError(
+                f"Pretix has an invalid event slug for registered city {city.slug!r}"
+            )
+        city_events = sorted(
+            event["slug"]
+            for event in all_events
+            if isinstance(event.get("slug"), str)
+            and (match := EVENT_SLUG_RE.fullmatch(event["slug"]))
+            and match.group(1) == city.slug
+        )
+        desired_team = {
+            "name": city.team_name,
+            "all_events": False,
+            "all_event_permissions": False,
+            "limit_event_permissions": ORGANISER_PERMISSIONS,
+            "all_organizer_permissions": False,
+            "limit_organizer_permissions": [],
+            "limit_events": city_events,
+        }
+        existing = teams_by_name.get(city.team_name, [])
+        if len(existing) > 1:
+            raise ApiError(f"Multiple Pretix teams are named {city.team_name!r}")
+        if existing:
+            team_id = existing[0].get("id")
+            if not isinstance(team_id, int):
+                raise ApiError(f"Pretix team {city.team_name!r} has an invalid ID")
+            pretix_req("PATCH", f"teams/{team_id}", desired_team)
+        else:
+            created_team = pretix_req(
+                "POST",
+                "teams",
+                desired_team,
+            )
+            team_id = created_team.get("id")
+            if not isinstance(team_id, int):
+                raise ApiError(f"Could not resolve Pretix team {city.team_name!r}")
+        actual_team = pretix_req("GET", f"teams/{team_id}")
+        for field in (
+            "all_events",
+            "all_event_permissions",
+            "all_organizer_permissions",
+        ):
+            if actual_team.get(field) != desired_team[field]:
+                raise ApiError(
+                    f"Pretix team {city.team_name!r} did not reconcile field {field!r}"
+                )
+        for field in (
+            "limit_event_permissions",
+            "limit_organizer_permissions",
+            "limit_events",
+        ):
+            actual_values = actual_team.get(field)
+            if not isinstance(actual_values, list) or set(actual_values) != set(
+                desired_team[field]
+            ):
+                raise ApiError(
+                    f"Pretix team {city.team_name!r} did not reconcile field {field!r}"
+                )
 
     props_resp = pretix_req("GET", "event_meta_properties")
     if props_resp:
@@ -461,62 +609,44 @@ def main() -> None:
                         },
                     )
 
-    logger.info("Provisioning Pretix staff team...")
-    staff_teams = [team for team in pretix_list_all("teams") if team.get("name") == STAFF_TEAM_NAME]
-    if len(staff_teams) > 1:
-        raise ApiError(f"Multiple Pretix teams are named {STAFF_TEAM_NAME!r}")
-    staff_team_payload = {
-        "name": STAFF_TEAM_NAME,
-        "all_events": True,
-        "limit_events": [],
-        "all_event_permissions": True,
-        "limit_event_permissions": [],
-        "all_organizer_permissions": False,
-        "limit_organizer_permissions": [],
-    }
-    if staff_teams:
-        pretix_req("PATCH", f"teams/{staff_teams[0]['id']}", staff_team_payload)
-        staff_team = pretix_req("GET", f"teams/{staff_teams[0]['id']}")
-    else:
-        created_staff_team = pretix_req("POST", "teams", staff_team_payload)
-        staff_team_id = created_staff_team.get("id")
-        if not isinstance(staff_team_id, int):
-            raise ApiError(f"Could not resolve Pretix staff team {STAFF_TEAM_NAME!r}")
-        staff_team = pretix_req("GET", f"teams/{staff_team_id}")
-    if any(
-        staff_team.get(key) != value
-        for key, value in staff_team_payload.items()
-        if key != "name"
-    ) or staff_team.get("name") != STAFF_TEAM_NAME:
-        raise ApiError(f"Pretix staff team {STAFF_TEAM_NAME!r} did not reconcile to the requested settings")
+    logger.info("--- 2. DISCOURSE PROVISIONING ---")
+    ensure_category_group_moderation_enabled()
 
-    logger.info("Provisioning regional Pretix Teams...")
-    all_teams = pretix_list_all("teams")
-    all_events = pretix_list_all("events")
-    existing_teams = {t["name"]: t for t in all_teams}
-    for city in CITIES:
-        city_events = sorted(
-            event["slug"]
-            for event in all_events
-            if isinstance(event.get("slug"), str)
-            and (match := EVENT_SLUG_RE.fullmatch(event["slug"]))
-            and match.group(1) == city.slug
-        )
-        desired_team = {
-            "name": city.team_name,
-            "all_events": False,
-            "all_event_permissions": False,
-            "limit_event_permissions": ORGANISER_PERMISSIONS,
-            "limit_events": city_events,
+    logger.info("Ensuring group %s...", MIGRATED_GROUP_NAME)
+    groups = list_discourse_groups()
+    existing_migrated = next(
+        (g for g in groups if g.get("name") == MIGRATED_GROUP_NAME), None
+    )
+    migrated_payload = {
+        "group": {
+            "name": MIGRATED_GROUP_NAME,
+            "full_name": "Ansible Meetup - Migrated from Meetup Pro",
+            "bio_raw": (
+                "People who have migrated from Meetup Pro (meetup.com/pro/ansible) "
+                "to the community-owned meetup platform.\n\n"
+                "This group is used for tracking migration progress. "
+                "Membership is managed automatically via invite links."
+            ),
+            "visibility_level": 3,
         }
-        if city.team_name in existing_teams:
-            pretix_req("PATCH", f"teams/{existing_teams[city.team_name]['id']}", desired_team)
-        else:
-            pretix_req(
-                "POST",
-                "teams",
-                desired_team,
-            )
+    }
+    if existing_migrated:
+        discourse_req("PUT", f"groups/{existing_migrated['id']}.json", migrated_payload)
+    else:
+        discourse_req("POST", "admin/groups.json", migrated_payload)
+
+    city_access = {}
+    for city in CITIES:
+        host_group, att_group, host_group_id = ensure_discourse_groups(
+            city.slug, city.city
+        )
+        ensure_discourse_category(city.city, host_group, att_group, host_group_id)
+        city_category_id = discourse_city_category_id(city.city)
+        city_access[city_category_id] = (host_group, host_group_id)
+
+    reconcile_organiser_category_access(city_access)
+
+    ensure_user_field_options()
 
     logger.info("--- PROVISIONING COMPLETE ---")
 

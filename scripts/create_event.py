@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from ansible_events_lib import (
     ApiError,
     CODE_OF_CONDUCT_URL,
-    CITY_NAME_RE,
+    CITY_SLUG_RE,
     DEFAULT_ITEM_NAME,
     DEFAULT_ITEM_PRICE,
     DEFAULT_QUOTA_NAME,
@@ -128,7 +128,7 @@ def main() -> None:
     args = parser.parse_args()
 
     city_info = get_city(args.city)
-    if not CITY_NAME_RE.fullmatch(args.city) or city_info is None:
+    if not CITY_SLUG_RE.fullmatch(args.city) or city_info is None:
         parser.error(f"Unknown or invalid city {args.city!r}; add lowercase city name to ansible_events_lib.py")
 
     try:
