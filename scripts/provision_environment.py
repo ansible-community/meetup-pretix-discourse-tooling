@@ -11,7 +11,6 @@ from ansible_events_lib import (
     ANSIBLE_PRIMARY_COLOR,
     ApiError,
     ATTENDEE_GROUP_PREFIX,
-    STAFF_GROUP_NAME,
     CITIES,
     CODE_OF_CONDUCT_URL,
     CONTACT_EMAIL,
@@ -22,7 +21,6 @@ from ansible_events_lib import (
     EVENTS_FORUM_URL,
     MIGRATED_GROUP_NAME,
     ORGANISERS_GROUP_PREFIX,
-    ORGANIZERS_GROUP_RE,
     ORGANISER_PERMISSIONS,
     PRIVACY_POLICY_URL,
     TEMPLATE_PLUGINS,
@@ -39,12 +37,38 @@ from ansible_events_lib import (
 )
 
 
+def list_discourse_groups() -> list[dict]:
+    """Fetch every Discourse group page so reconciliations cannot miss later groups."""
+    groups: list[dict] = []
+    page = 0
+    while True:
+        response = discourse_req("GET", f"admin/groups.json?page={page}")
+        batch = response.get("groups")
+        if not isinstance(batch, list):
+            raise ApiError("Discourse groups response is missing groups")
+        if any(not isinstance(group, dict) for group in batch):
+            raise ApiError("Discourse groups response contains an invalid group")
+        groups.extend(batch)
+        if not batch:
+            return groups
+        page += 1
+
+
+GROUP_SECURITY_FIELDS = (
+    "visibility_level",
+    "members_visibility_level",
+    "public_admission",
+    "allow_membership_requests",
+    "automatic_membership_email_domains",
+)
+
+
 def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, int]:
     host_group = f"{ORGANISERS_GROUP_PREFIX}-{city_slug}"
     attendee_group = f"{ATTENDEE_GROUP_PREFIX}-{city_slug}"
 
     def ensure_group(name: str, group: dict) -> int:
-        groups = discourse_req("GET", "admin/groups.json").get("groups", [])
+        groups = list_discourse_groups()
         existing = next((item for item in groups if item.get("name") == name), None)
         payload = {"group": group}
         if existing:
@@ -53,12 +77,21 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
             group_id = existing.get("id")
         else:
             logger.info("Creating group %s...", name)
-            discourse_req("POST", "admin/groups.json", payload)
-            groups = discourse_req("GET", "admin/groups.json").get("groups", [])
+            created = discourse_req("POST", "admin/groups.json", payload)
+            group_id = created.get("basic_group", created).get("id")
+            groups = list_discourse_groups()
             created = next((item for item in groups if item.get("name") == name), None)
-            group_id = created.get("id") if created else None
+            if created:
+                group_id = created.get("id")
         if not isinstance(group_id, int):
             raise ApiError(f"Could not resolve Discourse group ID for {name!r}")
+        actual = next((item for item in list_discourse_groups() if item.get("id") == group_id), None)
+        if actual is None or any(
+            actual.get(key) != group[key]
+            for key in GROUP_SECURITY_FIELDS
+            if key in group
+        ):
+            raise ApiError(f"Discourse group {name!r} did not reconcile to the requested settings")
         return group_id
 
     host_group_id = ensure_group(host_group, {
@@ -150,15 +183,13 @@ def reconcile_organiser_category_access(
                 flatten(children)
 
     flatten(roots)
-    group_rows = discourse_req("GET", "admin/groups.json").get("groups")
-    if not isinstance(group_rows, list):
-        raise ApiError("Discourse groups response is missing groups")
+    group_rows = list_discourse_groups()
     managed_group_ids = {group_id for _, group_id in city_access.values()}
     for group in group_rows:
         if not isinstance(group, dict):
             raise ApiError("Discourse groups response contains an invalid group")
         group_name = group.get("name")
-        if isinstance(group_name, str) and ORGANIZERS_GROUP_RE.fullmatch(group_name):
+        if isinstance(group_name, str) and group_name.startswith(f"{ORGANISERS_GROUP_PREFIX}-"):
             group_id = group.get("id")
             if not isinstance(group_id, int):
                 raise ApiError("Discourse organiser group response contains an invalid ID")
@@ -193,7 +224,7 @@ def reconcile_organiser_category_access(
         desired_permissions = {
             name: level
             for name, level in permissions.items()
-            if not (isinstance(name, str) and ORGANIZERS_GROUP_RE.fullmatch(name))
+            if not (isinstance(name, str) and name.startswith(f"{ORGANISERS_GROUP_PREFIX}-"))
         }
         if city_access_for_category is not None:
             city_group_name, _ = city_access_for_category
@@ -258,27 +289,8 @@ def main() -> None:
 
     logger.info("--- 1. DISCOURSE PROVISIONING ---")
 
-    logger.info("Ensuring group %s...", STAFF_GROUP_NAME)
-    groups = discourse_req("GET", "admin/groups.json").get("groups", [])
-    existing_admin = next((g for g in groups if g.get("name") == STAFF_GROUP_NAME), None)
-    admin_payload = {"group": {
-                "name": STAFF_GROUP_NAME,
-                "full_name": "Ansible Meetup Admins",
-                "bio_raw": (
-                    "Ansible Community Team members with global admin access to the meetup platform.\n\n"
-                    "**Requirements:** Members must have 2FA enabled and be approved by the "
-                    "Community Engineering lead.\n\n"
-                    "This group grants Pretix site-wide admin access across all organisers and events."
-                ),
-                "visibility_level": 4,
-            }}
-    if existing_admin:
-        discourse_req("PUT", f"groups/{existing_admin['id']}.json", admin_payload)
-    else:
-        discourse_req("POST", "admin/groups.json", admin_payload)
-
     logger.info("Ensuring group %s...", MIGRATED_GROUP_NAME)
-    groups = discourse_req("GET", "admin/groups.json").get("groups", [])
+    groups = list_discourse_groups()
     existing_migrated = next((g for g in groups if g.get("name") == MIGRATED_GROUP_NAME), None)
     migrated_payload = {"group": {
                 "name": MIGRATED_GROUP_NAME,
@@ -427,17 +439,21 @@ def main() -> None:
 
     logger.info("Provisioning regional Pretix Teams...")
     all_teams = pretix_list_all("teams")
+    all_events = pretix_list_all("events")
     existing_teams = {t["name"]: t for t in all_teams}
     for city in CITIES:
+        city_events = sorted(
+            event["slug"]
+            for event in all_events
+            if isinstance(event.get("slug"), str) and event["slug"].startswith(f"{city.slug}-")
+        )
         desired_team = {
             "name": city.team_name,
             "all_event_permissions": False,
             "limit_event_permissions": ORGANISER_PERMISSIONS,
-            "limit_events": existing_teams.get(city.team_name, {}).get("limit_events", []),
+            "limit_events": city_events,
         }
         if city.team_name in existing_teams:
-            team_resp = pretix_req("GET", f"teams/{existing_teams[city.team_name]['id']}")
-            desired_team["limit_events"] = team_resp.get("limit_events", [])
             pretix_req("PATCH", f"teams/{existing_teams[city.team_name]['id']}", desired_team)
         else:
             pretix_req(

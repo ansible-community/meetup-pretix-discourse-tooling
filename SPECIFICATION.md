@@ -206,7 +206,7 @@ For each city in the `CITIES` registry:
 
 9. Reconcile regional teams:
    - Fetch all teams using `pretix_list_all("teams")` (paginated).
-   - For each city, create a missing team or update an existing team's `all_event_permissions`, `limit_event_permissions`, and scoped `limit_events` without widening access.
+   - For each city, create a missing team or reconcile an existing team's `all_event_permissions`, `limit_event_permissions`, and `limit_events`. The desired event list is rebuilt from all Pretix events whose slug starts with the registered city slug plus `-`; stale and cross-city assignments are removed.
 
 ### 4.2 Event Creation (`create_event.py`)
 
@@ -294,8 +294,8 @@ For each city in the `CITIES` registry:
 
 - Fetch all teams using `pretix_list_all("teams")` (paginated).
 - Find team named `Ansible Meetup Organisers - {City}`.
-- Fetch the full team by ID (`GET /api/v1/organizers/ansible-meetups/teams/{id}/`) to get the complete `limit_events` array (avoids pagination truncation from list endpoint).
-- Append `final_slug` to `limit_events` list.
+- The provisioner derives each team's complete `limit_events` list from the paginated Pretix events inventory using the registered city slug prefix. It replaces the current list, removing stale or cross-city event grants.
+- Event creation adds its new slug to the matching team's list; the provisioner later recomputes that list from event slugs.
 - `PATCH /api/v1/organizers/ansible-meetups/teams/{id}/` → `{"limit_events": [...], "all_event_permissions": false, "limit_event_permissions": ["event.orders:read", "event.orders:checkin"]}`
 
 **Phase 8: Social Media Copy**
@@ -459,7 +459,7 @@ Trailing slash rules:
 | `POST` | `events/{slug}/quotas` | Create quota |
 | `PATCH` | `events/{slug}/quotas/{id}` | Update quota size |
 | `GET` | `teams` | List all teams (paginated via `pretix_list_all`) |
-| `GET` | `teams/{id}` | Fetch single team (complete `limit_events` array) |
+| `GET` | `events` | Paginated inventory used to reconcile city team event scope |
 | `POST` | `teams` | Create team |
 | `PATCH` | `teams/{id}` | Update team permissions/event limits |
 
@@ -541,7 +541,7 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 - A Pretix lookup returning an error or unknown status is never treated as proof that an event does not exist; the operation stops with `ApiError`.
 - A city slug must match `^[a-z]+$` and be registered in `CITIES`. New cities must be added and deployed before event creation.
 - The auth plugin trusts only `meetup-staff` and exact `^meetup-organisers-([a-z]+)$` group claims. Every claimed organiser group must resolve to a Pretix team or login is denied.
-- Discourse groups are reconciled by name on every provisioning run. `meetup-staff` visibility is owners-only (level 4); organiser groups are hidden (level 4), have staff-only member lists (level 3), and are managed by forum admins; attendee groups and their member lists are staff-only (level 3). Organiser group permissions and moderator assignments are removed from every category except that group's own city subcategory. Provisioning errors are fatal.
+- Discourse groups are reconciled by name on every provisioning run. Organiser groups are hidden (level 4), have staff-only member lists (level 3), and are managed by forum admins; attendee groups and their member lists are staff-only (level 3). Organiser group permissions and moderator assignments are removed from every category except that group's own city subcategory. Pretix teams are reconciled so their event list contains only events with that city's registered slug prefix. Provisioning errors are fatal.
 - Non-local `PRETIX_URL` values must use HTTPS so API tokens are not sent over cleartext HTTP.
 
 ### Known Accepted Risks
