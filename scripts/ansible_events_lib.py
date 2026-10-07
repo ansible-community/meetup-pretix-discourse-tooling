@@ -149,7 +149,7 @@ def discourse_user_in_group(username: str, group_name: str) -> bool:
         return False
     user_data = resp.get("user", {})
     groups = user_data.get("groups", [])
-    return any(g.get("name", "").lower() == group_name.lower() for g in groups)
+    return any(g.get("name") == group_name for g in groups)
 
 
 def pre_flight_checks(*, require_discourse: bool = True) -> None:
