@@ -29,9 +29,9 @@ You log in to both with your **forum account** — one identity, no separate pas
 
 | Group | Who's in it | What it grants |
 |---|---|---|
-| `meetup-host-{city}` (e.g., `meetup-host-london`) | You and any co-organisers for your city | Category Moderator on your city's subcategory + scoped Pretix dashboard access |
-| `meetup-attendee-{city}` | People who subscribe to your city's events | Notification subscriptions (hidden from public — privacy by design) |
-| `meetup-admin` | The Ansible Community Team | Global admin access across all cities |
+| `meetup-organisers-{city}` (e.g., `meetup-organisers-london`) | You and any co-organisers for your city | Private group; Category Moderator on your city's subcategory + scoped Pretix dashboard access |
+| `meetup-attendee-{city}` | People who subscribe to your city's events | Staff-only group for notification subscriptions |
+| `meetup-staff` | The Ansible Community Team | Owners-only group; global Pretix staff access across all cities |
 
 ### What the Community Team handles vs. what you handle
 
@@ -44,14 +44,14 @@ You log in to both with your **forum account** — one identity, no separate pas
 
 ### Key requirement: two-factor authentication
 
-As an organiser, you have access to attendee data (names, emails). To protect this data, you **must** have two-factor authentication (2FA) enabled on your forum account. The system checks this every time you log in to the Pretix dashboard.
+As an organiser, you have access to attendee data (names, emails). You **must** use two-factor authentication (2FA) on your forum account. DiscourseConnect challenges you during login, and Pretix accepts the session only when Discourse's signed response confirms that the challenge was completed. The check cannot be disabled in Pretix.
 
 **How to enable 2FA:**
 1. Go to `forum.ansible.com` → your profile → **Preferences** → **Security**
 2. Click **Enable Two-Factor Authentication**
 3. Choose your method (authenticator app recommended) and follow the prompts
 
-If 2FA is not enabled, you will be blocked from accessing the Pretix dashboard with the message: *"Privileged account blocked: Please enable 2FA in your Discourse security settings."*
+If 2FA is not set up or the challenge is not completed, Discourse will not provide the confirmation Pretix requires, and login is denied.
 
 ---
 
@@ -245,7 +245,7 @@ Yes, in the Pretix dashboard for your city's events only.
 Waitlist support is planned. For now, ask the Community Team to increase capacity if the venue allows it.
 
 **How do I add a co-organiser?**
-Ask the Community Team to add them to your city's `meetup-host-{city}` group. They'll get the same access as you.
+Ask the Community Team to add them to your city's `meetup-organisers-{city}` group. They'll get the same access as you.
 
 **What if I need to cancel an event?**
 Contact the Community Team. They'll unpublish the event and notify registered attendees.

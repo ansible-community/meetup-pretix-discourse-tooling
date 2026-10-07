@@ -17,7 +17,7 @@ This guide is for the Ansible Community Team engineers who run the event provisi
 Set these before running any script:
 
 ```bash
-export PRETIX_URL="https://pretix.example.com"       # Pretix instance (default: http://localhost:8000)
+export PRETIX_URL="https://pretix.example.com"       # Non-local Pretix URLs must use HTTPS (default: http://localhost:8000)
 export PRETIX_API_TOKEN="your-pretix-api-token"       # Required — Pretix API authentication
 export DISCOURSE_API_KEY="your-discourse-api-key"     # Required — Discourse API authentication
 ```
@@ -135,10 +135,6 @@ sso_secret = <shared-secret-min-32-chars>
 api_key = <discourse-admin-api-key>
 api_username = system
 organizer = ansible-meetups
-host_prefix = meetup-host
-staff_group = meetup-admin
-team_template = Ansible Meetup Organisers - {city}
-enforce_2fa_privileged = true
 api_timeout = 10
 ```
 
@@ -147,8 +143,8 @@ api_timeout = 10
 | `sso_secret` | Must match the DiscourseConnect secret in Discourse admin. Minimum 32 characters. |
 | `api_key` | Discourse Admin API key with "All Users" scope. |
 | `organizer` | Pretix organizer slug — must match `ORGANIZER_SLUG` in `ansible_events_lib.py`. |
-| `staff_group` | Discourse group granting Pretix site-wide admin. Default `meetup-admin`. |
-| `team_template` | Must match `ORGANISER_TEAM_PREFIX` + ` - {city}` from `ansible_events_lib.py`. |
+
+The plugin hardcodes `meetup-staff` and `meetup-organisers-{city}` as the only groups that grant Pretix privileges. DiscourseConnect always requests 2FA; the signed response must positively attest that the challenge was completed for staff and organisers. The Discourse Admin API key is required for every login to verify account security status. Missing or invalid API credentials deny login.
 
 Restart Pretix after any `pretix.cfg` changes (config is loaded at import time).
 
@@ -174,7 +170,7 @@ Without the certificate, Apple Wallet passes won't generate. Google Wallet passe
 
 **Script:** `scripts/provision_environment.py`
 
-This script creates all the infrastructure needed in Discourse and Pretix. It is idempotent — safe to run as many times as you like.
+This script reconciles the infrastructure in Discourse and Pretix to the configured desired state. It creates missing resources and updates existing groups, category permissions, template settings, and Pretix team permissions. It fails if API requests cannot complete; review the output and fix any error before relying on the resulting permissions.
 
 ### What it creates
 
@@ -182,8 +178,8 @@ This script creates all the infrastructure needed in Discourse and Pretix. It is
 
 | Resource | Example | Purpose |
 |----------|---------|---------|
-| Admin group | `meetup-admin` | Grants Pretix admin access via SSO |
-| Host group (per city) | `meetup-host-london` | Identifies city organisers |
+| Staff group | `meetup-staff` | Grants Pretix staff access via SSO |
+| Organiser group (per city) | `meetup-organisers-london` | Grants the city's scoped Pretix and category access |
 | Attendee group (per city) | `meetup-attendee-london` | Hidden city subscriptions |
 | Subcategory (per city) | `Events > London` | Regional forum category |
 
@@ -205,7 +201,7 @@ uv run python scripts/provision_environment.py
 
 ### What to check after
 
-1. Visit Discourse admin → Groups — verify `meetup-admin`, `meetup-host-{city}`, and `meetup-attendee-{city}` groups exist.
+1. Visit Discourse admin → Groups — verify `meetup-staff`, `meetup-organisers-{city}`, and `meetup-attendee-{city}` groups exist. Their visibility must be owners-only (level 4), members-only (level 2), and staff-only (level 3), respectively.
 2. Visit Discourse → Events category — verify subcategories exist for each city.
 3. Visit Pretix admin → Events — verify the template event `ansible-meetup-template-v6` exists (not published).
 4. Visit Pretix admin → Teams — verify `Ansible Meetup Organisers - {City}` teams exist.
@@ -228,13 +224,13 @@ This is the primary workflow. It creates a complete meetup: forum topic, Pretix 
 
 1. `provision_environment.py` has been run at least once.
 2. The organiser has a Discourse account.
-3. The organiser is a member of the `meetup-host-{city}` Discourse group.
+3. The organiser is a member of the `meetup-organisers-{city}` Discourse group.
 
 ### Command
 
 ```bash
 uv run python scripts/create_event.py \
-    --city London \
+    --city london \
     --date "2026-11-15T18:00:00" \
     --capacity 50 \
     --organiser gundalow
@@ -244,16 +240,16 @@ uv run python scripts/create_event.py \
 
 | Argument | Required | Format | Description |
 |----------|----------|--------|-------------|
-| `--city` | Yes | Letters, spaces, hyphens | City name (must be in `CITIES` registry for timezone) |
+| `--city` | Yes | `^[a-z]+$` | Lowercase city name already present in the `CITIES` registry |
 | `--date` | Yes | `YYYY-MM-DDTHH:MM:SS` | Event start time **in the city's local timezone** |
 | `--capacity` | Yes | Integer | Maximum number of attendees |
-| `--organiser` | Yes | Discourse username | Must exist and be in `meetup-host-{city}` group |
+| `--organiser` | Yes | Discourse username | Must exist and be in `meetup-organisers-{city}` group |
 
 **Important:** `--date` is in the event's **local time**, not UTC. If the event is in London at 6pm, use `2026-11-15T18:00:00`. The script automatically uses the city's timezone from the registry.
 
 ### What happens (step by step)
 
-1. **Validate** — Checks city name, organiser exists, organiser is in the right group, target event doesn't already exist.
+1. **Validate** — Checks city syntax and registration, organiser exists and is in the exact `meetup-organisers-{city}` group, the template and team exist, and the target event is confirmed absent. API failures stop the operation.
 2. **Create Discourse topic** — Posts a forum topic on behalf of the organiser with event details, agenda table, share section, and RSVP placeholder.
 3. **Create Pretix event** — Clones the master template with the city's timezone, links to the forum topic.
 4. **Update Discourse post** — Replaces placeholder URLs with the real Pretix RSVP link and share link.
@@ -283,12 +279,7 @@ SOCIAL MEDIA COPY (ready to paste)
 
 ### If it fails partway through
 
-The script has an **idempotency check** — if the Pretix event slug already exists, it aborts before creating anything. This prevents duplicate events on retry.
-
-However, if the Discourse topic was created (step 2) but the Pretix event failed (step 3), you'll have an orphaned forum topic. To clean up:
-
-1. Delete the orphaned Discourse topic manually.
-2. Re-run the script — the idempotency check will pass (no Pretix event exists) and it will create everything fresh.
+The script verifies the city, organiser, template, team, and event state before creating resources. Pretix lookup failures stop the run; only a confirmed `404` means the event is absent. If Pretix event creation fails after the Discourse topic was created, the script attempts to delete the topic. If cleanup also fails, remove it manually before retrying.
 
 ---
 
@@ -339,6 +330,8 @@ CITIES: tuple[CityInfo, ...] = (
 )
 ```
 
+The `city` field is the display name; the CLI uses its lowercase slug (`tokyo`). Add the city to `CITIES` and deploy that code before running `create_event.py`. Unknown or unregistered city slugs are rejected; no fallback timezone is used.
+
 Use [IANA timezone identifiers](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for the `timezone` field.
 
 ### 2. Run provisioning
@@ -348,7 +341,7 @@ uv run python scripts/provision_environment.py
 ```
 
 This creates:
-- Discourse groups: `meetup-host-tokyo`, `meetup-attendee-tokyo`
+- Discourse groups: `meetup-organisers-tokyo`, `meetup-attendee-tokyo`
 - Discourse subcategory: `Events > Tokyo`
 - Pretix team: `Ansible Meetup Organisers - Tokyo`
 
@@ -358,8 +351,8 @@ This creates:
 # Check the team was created
 uv run python -c "
 from scripts.ansible_events_lib import get_city
-city = get_city('Tokyo')
-print(f'City: {city.city}, TZ: {city.timezone}, Team: {city.team_name}, Host group: {city.host_group}')
+city = get_city('tokyo')
+print(f'City: {city.city}, TZ: {city.timezone}, Team: {city.team_name}, Organiser group: {city.organiser_group}')
 "
 ```
 
@@ -377,7 +370,7 @@ The `TestCitiesRegistry` tests will automatically verify the new city has all re
 
 ### 1. Add them to the Discourse group
 
-In Discourse admin → Groups → `meetup-host-{city}` → Members → Add:
+In Discourse admin → Groups → `meetup-organisers-{city}` → Members → Add:
 
 - Search for the user's Discourse username.
 - Add them as a member.
@@ -387,7 +380,7 @@ In Discourse admin → Groups → `meetup-host-{city}` → Members → Add:
 ```bash
 uv run python -c "
 from scripts.ansible_events_lib import discourse_user_in_group
-print(discourse_user_in_group('newuser', 'meetup-host-london'))
+print(discourse_user_in_group('newuser', 'meetup-organisers-london'))
 "
 ```
 
@@ -396,7 +389,7 @@ Should print `True`.
 ### 3. Use them in event creation
 
 ```bash
-uv run python scripts/create_event.py --city London --date "2026-12-01T18:00:00" --capacity 50 --organiser newuser
+uv run python scripts/create_event.py --city london --date "2026-12-01T18:00:00" --capacity 50 --organiser newuser
 ```
 
 ### 4. Pretix access
@@ -418,7 +411,7 @@ When migrating attendees from a Meetup Pro city to the forum, create invite link
 ### Prerequisites
 
 - The city must be provisioned (`provision_environment.py` has run).
-- The `meetup-attendee-migrated` group exists (created automatically by `provision_environment.py`).
+- The `meetup-migrated-from-meetup-pro` group exists (created automatically by `provision_environment.py`).
 
 ### Creating invite links (manual — Discourse admin UI)
 
@@ -431,10 +424,10 @@ For each city being migrated, create **one invite link** in Discourse:
    - **Expire after:** Never
    - **Add to groups:** select both:
      - `meetup-attendee-{city}` (subscribes them to city event notifications)
-     - `meetup-attendee-migrated` (tracks who came from Meetup Pro)
+     - `meetup-migrated-from-meetup-pro` (tracks who came from Meetup Pro)
 4. Copy the invite link
 
-**Do not add migrating attendees to `meetup-host-{city}`** — that group grants organiser permissions (Pretix dashboard, category moderator). Organisers are added individually after Community Engineering lead approval.
+**Do not add migrating attendees to `meetup-organisers-{city}`** — that group grants organiser permissions (Pretix dashboard, category moderator). Organisers are added individually after Community Engineering lead approval.
 
 ### Distributing invite links
 
@@ -445,9 +438,9 @@ Send the invite link to the Meetup Pro group members via:
 
 ### Tracking migration progress
 
-The `meetup-attendee-migrated` group tracks everyone who joined via a migration invite link. To check progress:
+The `meetup-migrated-from-meetup-pro` group tracks everyone who joined via a migration invite link. To check progress:
 
-- Discourse admin → Groups → `meetup-attendee-migrated` → Members
+- Discourse admin → Groups → `meetup-migrated-from-meetup-pro` → Members
 - Compare the member count against the original Meetup Pro group size
 
 ### Onboarding organisers (separate process)
@@ -456,7 +449,7 @@ Organiser migration is handled individually, not via invite links:
 
 1. Contact the organiser directly
 2. Ensure they create a forum account (or use the city invite link)
-3. Add them to `meetup-host-{city}` manually after Community Engineering lead approval
+3. Add them to `meetup-organisers-{city}` manually after Community Engineering lead approval
 4. Remind them to enable 2FA — they cannot access the Pretix dashboard without it
 
 ---
@@ -515,10 +508,10 @@ Check the username spelling. Discourse usernames are case-insensitive but must m
 ### "User not in group"
 
 ```
-ERROR - User 'gundalow' is not in group 'meetup-host-london'. Add them to the group first.
+ERROR - User 'gundalow' is not in group 'meetup-organisers-london'. Add them to the group first.
 ```
 
-Add the user to the group in Discourse admin → Groups → `meetup-host-london` → Members.
+Add the user to the group in Discourse admin → Groups → `meetup-organisers-london` → Members.
 
 ### API connection errors
 
@@ -565,8 +558,8 @@ Set the required environment variables (see [Prerequisites](#prerequisites)).
 |----------|-------|---------|
 | `ORGANIZER_SLUG` | `ansible-meetups` | Pretix organizer |
 | `TEMPLATE_SLUG` | `ansible-meetup-template-v6` | Master template event |
-| `HOST_GROUP_PREFIX` | `meetup-host` | Discourse group prefix for organisers |
-| `ADMIN_GROUP_NAME` | `meetup-admin` | Discourse group for Pretix admin access |
+| `ORGANISERS_GROUP_PREFIX` | `meetup-organisers` | Discourse group prefix for organisers |
+| `ADMIN_GROUP_NAME` | `meetup-staff` | Discourse group for Pretix staff access |
 | `ORGANISER_TEAM_PREFIX` | `Ansible Meetup Organisers` | Pretix team name prefix |
 
 ### Event slug format

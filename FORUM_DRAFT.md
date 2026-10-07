@@ -73,7 +73,7 @@ We've been running Ansible meetups on Meetup Pro for years, and it's worked. But
 1. We maintain a master event template in Pretix with locked-down settings (free tickets, single name field, no billing, QR delivery).
 2. When an organiser requests a new event, we run a CLI command that: creates the forum topic, clones the template, links them together, sets the capacity, assigns the organiser's team, and generates social media copy for 6 platforms.
 3. We manage the cities registry, the Discourse groups, and the Pretix teams. Adding a new city takes seconds.
-4. A global `meetup-admin` Discourse group gives the Community Team oversight without giving local organisers global access.
+4. A global `meetup-staff` Discourse group gives the Community Team oversight without giving local organisers global access.
 
 ---
 

@@ -39,7 +39,7 @@ This document outlines the objectives, core design decisions, and script invento
 
 ### Group Permissions (Subcategories vs. Tags)
 * **Decision:** Regional Discourse Subcategories (`Events > London`) with **Category Moderators** instead of a flat structure with Tags.
-* **Reasoning:** Discourse cannot assign edit/modify permissions based on Tags. By using regional subcategories, we can assign the local host group (`meetup-host-london`) as Category Moderators. This grants them the ability to edit community posts, pin topics, and manage the agenda for their city without requiring global admin rights.
+* **Reasoning:** Discourse cannot assign edit/modify permissions based on Tags. By using regional subcategories, we can assign the local organiser group (`meetup-organisers-london`) as Category Moderators. This grants them the ability to edit community posts, pin topics, and manage the agenda for their city without requiring global staff rights.
 
 ### Workflow: Hub-and-Spoke (Manual MVP)
 * **Decision:** Event creation is initiated via a request template on the forum and executed by the Ansible Community Team using a CLI script.
@@ -60,39 +60,37 @@ The integration relies on a unified suite of Python scripts that interact with t
 * **Function:**
   * API environment variable validation (`pre_flight_checks`) with support for Pretix-only mode.
   * Standard Python logging configuration.
-  * Type-annotated HTTP request wrappers (`pretix_req`, `discourse_req`) with unified error handling, timeout enforcement, `RequestException` and `JSONDecodeError` handling.
-  * `check_event_exists` helper for idempotent template detection.
+  * Type-annotated JSON API wrappers with `ApiError` exceptions, timeout enforcement, and fail-closed status handling.
+  * `check_event_exists` distinguishes confirmed `404` from API failure.
   * Cities registry (`CITIES`) with structured entries containing region, country, city name, and timezone for each active meetup location (currently: London, Barcelona, FakeTown).
-  * City helper functions: `get_city` (case-insensitive lookup). Slug and field value are properties on `CityInfo`.
+  * City helper functions: `get_city` validates lowercase alphabetic slugs against the registered city list. Slug and field value are properties on `CityInfo`.
   * Shared constants: `TEMPLATE_SLUG`, `CONTACT_EMAIL`, `DISCOURSE_PARENT_CATEGORY_ID`, `DISCOURSE_EVENTS_CATEGORY_ID`, `ORGANIZER_SLUG`.
-  * `ApiResponse` type alias for the mixed `dict | bool | None` return type used by API wrappers.
   * `pretix_list_all` pagination helper for safely fetching all results from paginated Pretix list endpoints.
 
 ### `create_event.py` (CLI Event Provisioning)
 * **Role:** Used by the Community Team to safely launch a new regional meetup.
 * **Function:**
-  1. Creates the Discourse forum topic **first**, authored on behalf of the local organizer (`--host`), with a Discourse Calendar `[event]` widget and a placeholder RSVP link.
-  2. Clones the Pretix master template to create the ticketing event, injecting the forum URL as metadata.
-  3. Updates the Discourse post with the verified Pretix RSVP URL.
-  4. Syncs only the content below the `---` separator to Pretix's frontpage (excluding Discourse-specific BBCode).
-  5. Adjusts venue capacity via quota management.
-  6. Publishes the event and assigns it to the local city's Organisers Team.
-  7. Generates ready-to-paste social media copy for X, Bluesky, Mastodon, LinkedIn, Reddit, and Hacker News, linking back to the forum post.
+  1. Validates the registered lowercase city, organiser, template, team, API availability, and duplicate state before mutation.
+  2. Creates the Discourse forum topic authored on behalf of the local organiser (`--organiser`), with a Discourse Calendar `[event]` widget and a placeholder RSVP link.
+  3. Clones the Pretix master template to create the ticketing event; attempts topic cleanup if event creation fails.
+  4. Updates the Discourse post with the Pretix RSVP URL.
+  5. Syncs only the content below the `---` separator to Pretix's frontpage (excluding Discourse-specific BBCode).
+  6. Adjusts capacity, publishes, assigns the city's team, and generates social media copy.
 
 ### `pretix_discourse_auth` (Django Plugin — External)
 * **Role:** The inbound/outbound SSO engine running inside Pretix (maintained separately).
 * **Function:** 
   * Generates outbound nonces and HMAC signatures.
   * Verifies inbound Discourse payloads.
-  * Enforces 2FA and Moderation policies via the Discourse Admin API.
-  * Maps Discourse groups (`meetup-host-{city}`) directly to pre-existing Pretix Teams, dynamically granting or revoking dashboard access on every login.
+  * Requires a signed DiscourseConnect `confirmed_2fa=true` assertion for privileged users; this policy has no configuration switch.
+  * Uses the Admin API for moderation checks only. Missing or invalid API credentials reject login.
+  * Accepts only `meetup-staff` and exact `meetup-organisers-[a-z]+` claims, mapped to pre-existing Pretix Teams. A missing matching team rejects login.
   * Pre-fills attendee name from Discourse SSO payload; local edits in Pretix are never written back to Discourse.
 
-### `pretix-day0.py` (Idempotent Environment Setup)
-* **Role:** Zero-touch provisioning for a blank Pretix/Discourse environment. Safe to run repeatedly.
+### `provision_environment.py` (Environment Reconciliation)
+* **Role:** Reconcile Pretix and Discourse resources to the desired state on each run.
 * **Function:** 
-  * Creates the global `meetup-admin` Discourse group for the Ansible Community Team (visibility_level 1).
-  * Creates per-city Discourse groups (`meetup-host-*`, `meetup-attendee-*`) and regional subcategories from the shared `CITIES` registry, assigning Category Moderator permissions.
+  * Reconciles the global `meetup-staff` group (owners-only), private per-city `meetup-organisers-*` groups, staff-only `meetup-attendee-*` groups, and regional category permissions.
   * Configures Pretix global settings and custom meta properties (`forum_topic_url`).
   * Generates the `ansible-meetup-template-v6` with strict SSO-friendly checkout rules (single name field, no duplicate email, no payment step), zero-cost ticket items, ICS attachments, and Passbook plugins.
   * Pre-creates restricted regional Pretix Teams (`Ansible Meetup Organisers - {City}`) with granular permissions (`event.orders:read`, `event.orders:checkin`) so the SSO plugin can map users on day one.
@@ -103,7 +101,7 @@ The integration relies on a unified suite of Python scripts that interact with t
 
 ### `discourse-connect-mvp.py` (SSO Test Toolkit)
 * **Role:** Standalone Flask application for testing and debugging the DiscourseConnect SSO flow.
-* **Function:** Implements the full SSO protocol (nonce generation, HMAC verification, payload decode). Enriches login data via the Discourse Admin API to check 2FA status, moderation flags, group memberships, and badges. Renders a diagnostic dashboard showing the computed permission level (admin/host/regular/blocked) and all raw payload data.
+* **Function:** Implements the SSO protocol for diagnostics. It sends `require_2fa=true`, displays the signed `confirmed_2fa` assertion, and uses the Admin API for moderation/account details. The Pretix plugin—not this diagnostic tool—is the production login authority.
 
 ### `lint.sh` (Code Quality)
 * **Role:** Automated linting and formatting for all Python files.

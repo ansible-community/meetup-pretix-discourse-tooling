@@ -42,14 +42,14 @@ The system is operated by the Ansible Community Team via CLI scripts. Local orga
 | Actor | Access | How |
 |---|---|---|
 | **Ansible Community Team** | Full: create events, manage templates, run all scripts | CLI scripts + API tokens |
-| **Local Organizer** | Scoped: view attendees + check in for their city only | Discourse SSO → Pretix dashboard (mapped via `meetup-host-{city}` group → Pretix Team) |
+| **Local Organizer** | Scoped: view attendees + check in for their city only | Discourse SSO → Pretix dashboard (mapped via `meetup-organisers-{city}` group → Pretix Team) |
 | **Attendee** | RSVP only: register for events, receive QR code | Discourse SSO → Pretix checkout |
 
 ### Environment Variables
 
 | Variable | Required By | Default | Purpose |
 |---|---|---|---|
-| `PRETIX_URL` | All scripts | `http://localhost:8000` | Pretix instance base URL |
+| `PRETIX_URL` | All scripts | `http://localhost:8000` | HTTPS required except localhost/loopback development URLs |
 | `PRETIX_API_TOKEN` | All scripts | *(none — required)* | Pretix API authentication |
 | `DISCOURSE_URL` | All scripts | `https://forum.ansible.com` | Discourse instance base URL |
 | `DISCOURSE_API_KEY` | All scripts | *(none — required)* | Discourse API authentication |
@@ -59,9 +59,6 @@ The system is operated by the Ansible Community Team via CLI scripts. Local orga
 | `CALLBACK_URL` | SSO toolkit only | `http://localhost:5000/callback` | SSO return URL |
 | `FLASK_SECRET` | SSO toolkit only | `dev-only-secret-change-me-0123456789` | Flask session signing key |
 | `DISCOURSE_API_USERNAME` | SSO toolkit only | `system` | Admin user for enrichment queries |
-| `REQUIRE_2FA` | SSO toolkit only | `0` | Send `require_2fa=true` in SSO payload |
-| `ENFORCE_2FA_FOR_PRIVILEGED` | SSO toolkit only | `1` | Block privileged users without 2FA |
-| `HOST_GROUP_PREFIX` | SSO toolkit only | `meetup-host` | Prefix for host group detection |
 | `MEETUP_KEYWORD` | SSO toolkit only | `meetup` | Keyword for meetup-related group/badge filtering |
 
 ---
@@ -101,15 +98,9 @@ A frozen, slotted dataclass representing a meetup city.
 - All timezones must contain a `/` (IANA format validation).
 - CityInfo instances are frozen — no attribute mutation after construction.
 
-### 3.2 ApiResponse
+### 3.2 API Results and Errors
 
-Type alias: `dict[str, Any] | bool | None`
-
-- `dict[str, Any]`: Successful API call with JSON response body.
-- `True`: Successful API call with empty response body (e.g., HTTP 204).
-- `None`: Failed API call (logged, not raised).
-
-Callers must use `isinstance(resp, dict)` before accessing `.get()` or `[]` on the response.
+`pretix_req` and `discourse_req` return `dict[str, Any]` for JSON responses and `{}` for successful empty responses. Network errors, non-success status codes, invalid JSON, and non-object JSON raise `ApiError`; they are never represented as `None` or `False`. The CLI boundary catches `ApiError`, reports a concise failure, and exits non-zero. `check_event_exists` returns a boolean only for confirmed HTTP `200` or `404` responses.
 
 ### 3.3 Master Template
 
@@ -145,8 +136,8 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 
 | Entity | Pattern | Example |
 |---|---|---|
-| Discourse admin group | `meetup-admin` | `meetup-admin` |
-| Discourse host group | `meetup-host-{slug}` | `meetup-host-london` |
+| Discourse staff group | `meetup-staff` | `meetup-staff` |
+| Discourse organiser group | `meetup-organisers-{slug}` | `meetup-organisers-london` |
 | Discourse attendee group | `meetup-attendee-{slug}` | `meetup-attendee-london` |
 | Discourse category | City name under parent category | `London` (child of Events, ID 8) |
 | Pretix team | `Ansible Meetup Organisers - {City}` | `Ansible Meetup Organisers - London` |
@@ -167,34 +158,23 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 
 ## 4. Core Workflows
 
-### 4.1 Environment Bootstrap (`pretix-day0.py`)
+### 4.1 Environment Reconciliation (`provision_environment.py`)
 
-**Purpose:** Idempotent provisioning of a blank Pretix + Discourse environment. Safe to run repeatedly.
+**Purpose:** Reconcile Pretix and Discourse resources to desired state. Resources are resolved by stable name, created if absent, and updated when security-relevant settings drift.
 
 **Prerequisites:** `PRETIX_API_TOKEN` and `DISCOURSE_API_KEY` environment variables set.
 
 **Phase 1: Discourse Provisioning**
 
-0. Create global admin group:
-   - `POST /admin/groups.json`
-   - Payload: `{"group": {"name": "meetup-admin", "full_name": "Ansible Meetup Admins", "visibility_level": 1}}`
-   - Purpose: Private group for the Ansible Community Team. Visibility Level 1 = owners only.
+0. Reconcile global staff group `meetup-staff` by stable name, creating it if absent and updating it if present. Set visibility level 4 (owners only).
 
 For each city in the `CITIES` registry:
 
-1. Create host group:
-   - `POST /admin/groups.json`
-   - Payload: `{"group": {"name": "meetup-host-{slug}", "full_name": "Ansible Meetup Organizers - {City}", "visibility_level": 2}}`
-   - Idempotency: Discourse returns "has already been taken" for duplicates; this error is silently suppressed by `discourse_req`.
+1. Reconcile organiser group `meetup-organisers-{slug}` by exact name; set visibility level 2 (members only) and update its description when it already exists.
 
-2. Create attendee group:
-   - `POST /admin/groups.json`
-   - Payload: `{"group": {"name": "meetup-attendee-{slug}", "full_name": "Ansible Meetup Attendees - {City}", "visibility_level": 3}}`
-   - Visibility Level 3 = Staff Only (hidden from public, prevents location-based doxxing).
+2. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force visibility level 3 (staff only).
 
-3. Create regional subcategory:
-   - `POST /categories.json`
-   - Payload: `{"name": "{City}", "parent_category_id": 8, "color": "EE0000", "text_color": "FFFFFF", "permissions": {"everyone": 1, "meetup-host-{slug}": 1, "meetup-attendee-{slug}": 1}, "reviewable_by_group_name": "meetup-host-{slug}"}`
+3. Reconcile regional subcategory by parent and name, enforcing its description, color, permissions, and moderator assignment.
 
 **Phase 2: Pretix Provisioning**
 
@@ -208,11 +188,12 @@ For each city in the `CITIES` registry:
      - `POST /api/v1/organizers/ansible-meetups/event_meta_properties/`
      - Payload: `{"name": "forum_topic_url", "default": "https://forum.ansible.com/c/events/8", "choices": []}`
 
-6. Create or verify template event:
+6. Create or reconcile template event:
    - `GET /api/v1/organizers/ansible-meetups/events/ansible-meetup-template-v6/` (check existence via status code)
    - If 404:
      - `POST /api/v1/organizers/ansible-meetups/events/`
      - Payload: `{"name": {"en": "TEMPLATE: Standard Meetup"}, "slug": "ansible-meetup-template-v6", "live": false, "is_template": true, "currency": "USD", "date_from": "2026-12-31T18:00:00Z", "plugins": ["pretix.plugins.sendmail", "pretix.plugins.ticketoutputpdf"]}`
+   - On every run, force `live=false`, `is_template=true`, and the desired plugin list.
 
 7. Enforce template settings:
    - `PATCH /api/v1/organizers/ansible-meetups/events/ansible-meetup-template-v6/settings/`
@@ -224,45 +205,48 @@ For each city in the `CITIES` registry:
      - `POST .../items/` → `{"name": {"en": "RSVP"}, "default_price": "0.00", "active": true, "admission": true}`
      - `POST .../quotas/` → `{"name": "Capacity", "size": 100, "items": [item_id]}`
 
-9. Provision regional teams:
+9. Reconcile regional teams:
    - Fetch all teams using `pretix_list_all("teams")` (paginated).
-   - For each city, if no team named `Ansible Meetup Organisers - {City}`:
-     - `POST /api/v1/organizers/ansible-meetups/teams/`
-     - Payload: `{"name": "Ansible Meetup Organisers - {City}", "all_event_permissions": false, "limit_event_permissions": ["event.orders:read", "event.orders:checkin"], "limit_events": []}`
+   - For each city, create a missing team or update an existing team's `all_event_permissions`, `limit_event_permissions`, and scoped `limit_events` without widening access.
 
 ### 4.2 Event Creation (`create_event.py`)
 
-**Purpose:** Provision a complete meetup: Discourse topic + Pretix event + social media copy.
+**Purpose:** Provision a complete meetup: Discourse topic + Pretix event + social media copy. City input must be a registered lowercase ASCII slug.
 
 **CLI Arguments:**
 
 | Argument | Required | Type | Validation | Example |
 |---|---|---|---|---|
-| `--city` | Yes | string | `^[A-Za-z \-]+$` (letters, spaces, hyphens only) | `Manchester` |
+| `--city` | Yes | string | `^[a-z]+$`; must resolve in `CITIES` | `london` |
 | `--date` | Yes | string | Event local time, ISO-8601 parsed by `datetime.fromisoformat` | `2026-10-31T18:00:00` |
 | `--capacity` | Yes | int | `argparse type=int` enforcement | `100` |
-| `--host` | Yes | string | No validation (passed as Discourse Api-Username) | `gundalow` |
+| `--organiser` | Yes | string | Discourse username; must be a member of the registered city's organiser group | `gundalow` |
 
 **Derived Values:**
 
 | Value | Derivation |
 |---|---|
-| `event_timezone` | `get_city(city).timezone` if city in registry, else `"UTC"` |
+| `event_timezone` | Registered `get_city(city).timezone`; unknown city is rejected before API calls |
 | `end_dt` | `dt + 3 hours` |
 | `start_str` | `dt.strftime("%Y-%m-%dT%H:%M:%S")` (no Z suffix — local time) |
 | `end_str` | `end_dt.strftime("%Y-%m-%dT%H:%M:%S")` (no Z suffix — local time) |
 | `event_name` | `f"Ansible Meetup {city.title()}"` |
 | `target_slug` | `f"{city.lower().replace(' ', '-')}-{mon}-{yyyy}"` (e.g., `manchester-oct-2026`) |
 
-**Phase 0: Idempotency Pre-flight**
+**Phase 0: Validation and Pre-flight**
+
+- Reject city names outside `^[a-z]+$` and names absent from `CITIES` before API calls.
+- Verify organiser, exact organiser-group membership, template, Pretix team, and API availability before mutations.
+- `check_event_exists` returns `True`/`False` only for confirmed `200`/`404`; other statuses and network failures raise `ApiError`.
+- Require HTTPS for `PRETIX_URL` except localhost and loopback development endpoints.
 
 - Check if `target_slug` already exists in Pretix via `check_event_exists(target_slug)`.
-- If it exists, **abort** (exit 1) with a clear error to prevent duplicate events on retry.
+- If it exists, **abort** (exit 1) with a clear error. API failures are not interpreted as absence.
 
 **Phase 1: Create Discourse Topic**
 
 - `POST /posts.json`
-- Headers: `Api-Username: {host}` (impersonation)
+- Headers: `Api-Username: {organiser}` (impersonation)
 - Payload: `{"title": "Ansible Meetup: {City} - {Month Year}", "raw": {initial_markdown}, "category": 14}`
 - **MUST abort** (exit 1) if this fails. No Pretix event should be created without a forum topic.
 - Extract `post_id`, `topic_slug`, and `topic_id` from response.
@@ -273,6 +257,7 @@ For each city in the `CITIES` registry:
 - `POST /api/v1/organizers/ansible-meetups/events/`
 - Payload: `{"name": {"en": event_name}, "slug": target_slug, "date_from": date, "date_to": end_date, "timezone": event_timezone, "clone_from": "ansible-meetup-template-v6", "meta_data": {"forum_topic_url": forum_url}}`
 - **MUST abort** (exit 1) if this fails.
+- If event creation fails after topic creation, attempt to delete the topic. If the result has no ID or cleanup fails, report that the operator must inspect and remove any orphan before retrying.
 - Extract `final_slug` from response (may differ from `target_slug` if Pretix appends a suffix).
 - Construct `pretix_public_url = f"{PRETIX_URL}/{ORGANIZER_SLUG}/{final_slug}/"`
 
@@ -282,8 +267,8 @@ For each city in the `CITIES` registry:
 - Replace RSVP placeholder: `*[RSVP link pending...]*` → `**[Click here to RSVP via Pretix]({pretix_public_url})**`
 - `PUT /posts/{post_id}.json`
 - Payload: `{"post": {"raw": final_markdown}}`
-- Headers: `Api-Username: {host}` (impersonation)
-- Warn on failure but continue.
+- Headers: `Api-Username: {organiser}` (impersonation)
+- `ApiError` aborts the workflow; request failures do not become false success values.
 
 **Phase 4: Sync to Pretix Frontpage**
 
@@ -364,7 +349,7 @@ This now matches the behavior of `create_event.py` — both scripts strip the Di
 1. Generate cryptographic nonce: `secrets.token_urlsafe(32)`.
 2. Store nonce in Flask session: `session["discourse_nonce"] = nonce`.
 3. Build SSO URL:
-   - Encode `{"nonce": nonce, "return_sso_url": CALLBACK_URL}` (optionally `"require_2fa": "true"` if `REQUIRE_2FA=1`).
+   - Encode `{"nonce": nonce, "return_sso_url": CALLBACK_URL, "require_2fa": "true"}` unconditionally.
    - Base64-encode the URL-encoded string.
    - Sign with HMAC-SHA256 using `SSO_SECRET`.
    - URL-encode the Base64 payload.
@@ -384,7 +369,7 @@ This now matches the behavior of `create_event.py` — both scripts strip the Di
 **Analysis (Policy Engine):**
 
 Enrichment:
-- `GET /admin/users/{external_id}.json` → extract `second_factor_enabled`, `silenced_till`, `suspended_till`, `staged`, `trust_level`, `secondary_group_names`.
+- `GET /admin/users/{external_id}.json` → extract moderation status (`silenced_till`, `suspended_till`), staged status, trust level, and secondary groups.
 - `GET /user-badges/{username}.json` → extract badge names.
 
 Blocking rules (evaluated in order, all applicable reasons collected):
@@ -394,15 +379,15 @@ Blocking rules (evaluated in order, all applicable reasons collected):
 | `is_silenced(api)` — `silenced_till` present and non-null | `"moderation: silenced [until {date}]"` |
 | `is_suspended(api)` — `suspended_till` present and non-null | `"moderation: suspended [until {date}]"` |
 | `is_anonymised(data)` — `email.endswith("@anonymized.invalid")` | `"RTBF: anonymised (block future ticket purchase)"` |
-| `ENFORCE_2FA` AND (`is_admin` OR has `meetup-host-*` group) AND `second_factor_enabled != true` | `"privileged (admin/host) but second_factor_enabled=False"` |
+| Privileged (`meetup-staff` or exact `meetup-organisers-[a-z]+`) without signed `confirmed_2fa=true` | `"privileged but DiscourseConnect did not confirm 2FA"` |
 
 Permission levels (highest wins):
 
 | Level | Condition |
 |---|---|
 | `blocked` | Any blocking reason triggered |
-| `admin` | `data.admin == "true"` |
-| `host ({cities})` | User has `meetup-host-*` groups |
+| `staff` | User is in the exact `meetup-staff` group |
+| `organiser ({cities})` | User has exact `meetup-organisers-[a-z]+` groups |
 | `regular` | Default |
 
 **Status Check Functions:**
@@ -452,10 +437,10 @@ Trailing slash rules:
 
 | Status | Behavior |
 |---|---|
-| 200, 201, 204 | Success. Parse JSON if body present; return `True` if empty body. |
-| Any other | Log error (status + first 200 chars of body), return `None`. |
-| Connection error | Log `httpx.HTTPError`, return `None`. |
-| Invalid JSON | Log error, return `None`. |
+| 200, 201, 204 | Success. Return JSON object, or `{}` for an empty body. |
+| Any other | Raise `ApiError` with status and bounded response excerpt. |
+| Connection error | Raise `ApiError`; never infer resource absence. |
+| Invalid/non-object JSON | Raise `ApiError`. |
 
 **Endpoints Used:**
 
@@ -496,7 +481,7 @@ No trailing slash appended (Discourse endpoints include their own suffixes like 
 
 **Response Handling:**
 
-Same as Pretix, with one addition: if the error body contains `"has already been taken"`, the error is silently suppressed (idempotent creation).
+Same typed contract as Pretix. Duplicate creation errors are not swallowed; provisioning first resolves resources by name and updates them.
 
 **Endpoints Used:**
 
@@ -513,7 +498,7 @@ Same as Pretix, with one addition: if the error body contains `"has already been
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/admin/users/{external_id}.json` | Fetch user admin data (2FA, status) |
+| `GET` | `/admin/users/{external_id}.json` | Fetch moderation/status data; 2FA is asserted by signed DiscourseConnect response |
 | `GET` | `/user-badges/{username}.json` | Fetch user badges |
 
 ---
@@ -524,11 +509,11 @@ Same as Pretix, with one addition: if the error body contains `"has already been
 
 | Input | Rule | Enforcement Point |
 |---|---|---|
-| `--city` | `^[A-Za-z \-]+$` (letters, literal spaces, hyphens) | `create_event.py` — exit 1 on mismatch |
+| `--city` | `^[a-z]+$`, registered in `CITIES` | Reject before API calls or mutations |
 | `--slug` | `^[a-z0-9\-]+$` (lowercase alphanumerics, hyphens) | `pretix-sync-event.py` — return on mismatch |
 | `--date` | Valid ISO-8601 | `datetime.fromisoformat()` — raises `ValueError` |
 | `--capacity` | Integer | `argparse type=int` — rejects non-integers |
-| `--host` | No validation | Passed as HTTP header; httpx rejects CRLF |
+| `--organiser` | Discourse username | Membership-checked, then used as the Discourse `Api-Username` |
 | Topic ID (from URL) | Numeric (`isdigit()`) | `pretix-sync-event.py` — return on mismatch |
 
 ### XSS Prevention
@@ -551,10 +536,18 @@ Same as Pretix, with one addition: if the error body contains `"has already been
 - API tokens are in headers only, never in URLs or log messages.
 - `httpx.HTTPError` exception messages do not include request headers.
 
+### Attack and Misconfiguration Model
+
+- A Pretix lookup returning an error or unknown status is never treated as proof that an event does not exist; the operation stops with `ApiError`.
+- A city slug must match `^[a-z]+$` and be registered in `CITIES`. New cities must be added and deployed before event creation.
+- The auth plugin trusts only `meetup-staff` and exact `^meetup-organisers-([a-z]+)$` group claims. Every claimed organiser group must resolve to a Pretix team or login is denied.
+- Discourse groups are reconciled by name on every provisioning run. `meetup-staff` visibility is owners-only (level 4), organiser groups are members-only (level 2), and attendee groups are staff-only (level 3). Provisioning errors are fatal.
+- Non-local `PRETIX_URL` values must use HTTPS so API tokens are not sent over cleartext HTTP.
+
 ### Known Accepted Risks
 
 1. **Markdown relay:** `pretix-sync-event.py` copies raw Discourse markdown to Pretix. A malicious organizer could inject markdown that renders differently in Pretix than in Discourse. Mitigated by only trusted organizers having edit access to event topics.
-2. **`run_as` scope:** `create_event.py --host` allows impersonating any Discourse user. Mitigated by API key access control.
+2. **`run_as` scope:** `create_event.py --organiser` impersonates the selected Discourse user when posting. Membership is validated first; API key scope remains important.
 3. **Flask secret key:** Default dev-only key is committed to source. Production deployment requires `FLASK_SECRET` env var override.
 4. **`/debug` endpoint:** Exposes last user's full SSO profile. No authentication. Acceptable for localhost-only dev tool.
 
@@ -641,7 +634,7 @@ X and Bluesky include a fallback mechanism: if the primary text exceeds the char
 ### HTTP
 
 - **Timeout:** 10 seconds on ALL HTTP calls (httpx and urllib).
-- **No retries:** Failed requests return `None`. Callers decide whether to abort or continue.
+- **No retries:** Failed requests raise `ApiError`; CLI entry points report the error and exit non-zero.
 - **No connection pooling:** Each `httpx.request()` call creates a new connection.
 
 ### Logging
@@ -656,7 +649,7 @@ X and Bluesky include a fallback mechanism: if the primary text exceeds the char
 
 - `from __future__ import annotations` in all files.
 - Full type annotations on all function signatures (parameters + return types, including `-> None`).
-- `ApiResponse` type alias for API wrapper returns.
+- API wrappers return JSON objects and raise `ApiError` on failure; create/read operations require a JSON object response.
 - Pyright with `typeCheckingMode = "standard"` (must pass with zero errors).
 - Frozen slotted dataclasses for data models.
 
@@ -733,11 +726,11 @@ The Pretix checkout flow for authenticated attendees is:
 
 All API calls are fire-once. If a request fails due to a transient network error or rate limit, the operation fails. There is no exponential backoff, circuit breaker, or retry queue.
 
-### No Rollback on Partial Failure
+### Recovery after Partial Failure
 
-`create_event.py` executes 7 phases sequentially. If Phase 1 (Discourse topic) succeeds but Phase 2 (Pretix event) fails, an orphaned forum topic remains. There are no compensating transactions (e.g., deleting the Discourse topic on Pretix failure).
+`create_event.py` validates configuration and remote prerequisites before mutation. If Pretix event creation fails after the Discourse topic was created, it attempts to delete that topic. If cleanup fails, an operator must remove the orphan before retrying. Later API failures can still leave a partially configured event and must be resolved before announcing it.
 
-The script aborts on Phase 1 or 2 failure. Phases 3-7 log warnings on failure but continue — the event may end up partially configured (e.g., published but with wrong quota, or no team assignment).
+The script aborts on API errors. Review the event and forum topic before announcing it; later mutations can leave partially configured resources that require operator repair.
 
 ### Partial Pagination
 
@@ -745,7 +738,7 @@ The `teams` list endpoint is paginated via `pretix_list_all`. Other list endpoin
 
 ### Template Must Exist Before Event Creation
 
-`create_event.py` uses `clone_from: ansible-meetup-template-v6`. If the template doesn't exist, the Pretix API returns 400 and the script aborts. The operator must run `pretix-day0.py` at least once first.
+`create_event.py` uses `clone_from: ansible-meetup-template-v6`. It checks that the template exists before mutation. Run `provision_environment.py` to create or reconcile it.
 
 ### Single-Process Flask Dev Server
 
@@ -777,9 +770,7 @@ All events use `"currency": "USD"` (inherited from the template). No per-city cu
 
 ### Q1: Partial Failure Compensation
 
-When `create_event.py` Phase 1 (Discourse topic) succeeds but Phase 2 (Pretix event clone) fails, an orphaned forum topic exists with a broken RSVP link placeholder. **Should the rebuild implement compensating transactions** (delete the Discourse topic on Pretix failure)? Or is manual cleanup by the community team acceptable?
-
-**Note:** An idempotency pre-flight check now prevents duplicate Pretix events on retry (Phase 0 checks `check_event_exists`). However, the orphaned Discourse topic from the failed first attempt still requires manual cleanup.
+The script attempts compensating cleanup if Pretix event creation fails. If the cleanup API call also fails, delete the topic manually before retrying. Unknown Pretix event state is fatal and never treated as absence.
 
 ### Q2: Scale & Pagination
 
@@ -794,17 +785,17 @@ Is `discourse-connect-mvp.py` a throwaway test tool, or should the rebuild inclu
 Who adds new cities? Should the registry be:
 - **Hardcoded** (current) — requires code deployment for each new city.
 - **Config file** (YAML/JSON) — editable without code changes.
-- **Discourse-driven** — auto-discover cities from existing `meetup-host-*` groups.
+- **Discourse-driven** — auto-discover cities from existing `meetup-organisers-*` groups.
 - **Database** — for API-managed CRUD.
 
 ### Q5: Event Duration
 
 Event duration is hardcoded at 3 hours. **Should the rebuild accept a `--duration` CLI argument?** Most meetups are 2-3 hours, but unconferences or all-day workshops may need longer.
 
-### Q6: `meetup-admin` Group Permissions
+### Q6: `meetup-staff` Group Permissions
 
-The `meetup-admin` Discourse group is created by day0, but its permissions scope is not yet defined. **What should `meetup-admin` members be able to do?** Options: global Pretix admin access, cross-city event visibility, ability to run CLI scripts, or Discourse-level moderation powers.
+The `meetup-staff` group grants Pretix staff access. Only `meetup-staff` and exact `meetup-organisers-[a-z]+` groups are accepted by the auth plugin.
 
 ### Q7: Pretix API Rate Limits
 
-What are the Pretix instance's API rate limits? `pretix-day0.py` makes 10+ API calls per city during bootstrap. At 50 cities, that's 500+ sequential requests. **Do we need request throttling or backoff?** What about the Discourse API rate limits (default: 60 requests/minute for API keys)?
+What are the Pretix instance's API rate limits? `provision_environment.py` makes multiple API calls per city during reconciliation. At 50 cities, that's hundreds of sequential requests. **Do we need request throttling or backoff?** What about the Discourse API rate limits?

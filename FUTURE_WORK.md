@@ -472,7 +472,7 @@ Organised by attendee lifecycle stage. Each item has a consistent structure: des
 
 ## New Organiser Onboarding DM
 
-**Description:** Auto-send a welcome private message when someone is added to a `meetup-host-{city}` group with links to the organiser guide, 2FA instructions, and check-in app setup.
+**Description:** Auto-send a welcome private message when someone is added to a `meetup-organisers-{city}` group with links to the organiser guide, 2FA instructions, and check-in app setup.
 
 **Status:** Unimplemented
 
@@ -483,7 +483,7 @@ Organised by attendee lifecycle stage. Each item has a consistent structure: des
 **Type:** Config (Discourse Automation Plugin)
 
 ### Technical Implementation
-* Discourse Automation rule: trigger on "User added to group" matching `meetup-host-*`.
+* Discourse Automation rule: trigger on "User added to group" matching `meetup-organisers-*`.
 * DM template with links to organiser guide, 2FA path, pretixSCAN download.
 
 ---
@@ -520,7 +520,7 @@ Organised by attendee lifecycle stage. Each item has a consistent structure: des
 **Type:** Code
 
 ### Technical Implementation
-* Web app authenticated via Discourse SSO, scoped by `meetup-host-{city}` group.
+* Web app authenticated via Discourse SSO, scoped by `meetup-organisers-{city}` group.
 * Nightly data pipeline: Pretix orders + check-ins → PostgreSQL time-series.
 * Dashboard: month-over-month growth, no-show rate, retention, peak registration times.
 
