@@ -200,7 +200,7 @@ uv run python scripts/provision_environment.py
 
 ### What to check after
 
-1. Visit Discourse admin → Groups — verify `meetup-organisers-{city}` and `meetup-attendee-{city}` groups exist. Organiser groups are hidden (level 4) with staff-only member lists (level 3), no group owners, public admission, membership requests, or automatic email-domain membership; attendee groups and their member lists are staff-only (level 3). Forum admins manage organiser membership. The Forum has no `meetup-admin` or `meetup-staff` groups.
+1. Visit Discourse admin → Groups — verify `meetup-organisers-{city}` and `meetup-attendee-{city}` groups exist. Organiser groups and their member lists are visible to group owners only (level 4), have no group owners, public admission, membership requests, or automatic email-domain membership, and track their own city subcategory by default. Attendee groups and their member lists are staff-only (level 3). Forum admins manage organiser membership. The Forum has no `meetup-admin` or `meetup-staff` groups.
 2. In Discourse admin → Settings, verify category group moderation is enabled. Visit each city subcategory and confirm only that city's `meetup-organisers-{city}` group has category permissions and moderator status. Confirm organiser groups have no explicit permissions or moderator assignments on other categories. Event topics are created directly in that city subcategory.
 3. Visit Pretix admin → Events — verify the template event `ansible-meetup-template-v6` exists (not published).
 4. Visit Pretix admin → Teams — verify city teams have only their city's events, and `Ansible Meetup Staff` has all meetup events. Pretix admins alone add and remove members of the staff team.

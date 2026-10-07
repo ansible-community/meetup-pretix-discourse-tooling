@@ -168,7 +168,7 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 
 For each city in the `CITIES` registry:
 
-1. Reconcile organiser group `meetup-organisers-{slug}` by exact name; set visibility level 4 (owners only), member-list visibility level 3 (staff only), disable public admission and membership requests, clear automatic email-domain membership and group owners, and update its description. Forum admins manage membership.
+1. Reconcile organiser group `meetup-organisers-{slug}` by exact name; set group and member-list visibility level 4 (group owners only), disable public admission and membership requests, clear automatic email-domain membership and group owners, and update its description. Forum admins manage membership. Set the group's default notification level to Tracking for its own city subcategory and apply that default to existing group members.
 
 2. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force group and member-list visibility level 3 (staff only).
 

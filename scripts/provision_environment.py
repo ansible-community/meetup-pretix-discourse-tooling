@@ -79,6 +79,7 @@ FIELD_LABELS = {
     "owner_usernames": "group owners",
     "permissions": "permissions",
     "moderating_group_ids": "moderator groups",
+    "tracking_category_ids": "tracking categories",
     "all_events": "all events",
     "all_event_permissions": "all event permissions",
     "limit_event_permissions": "event permissions",
@@ -91,6 +92,7 @@ UNORDERED_FIELDS = {
     "limit_organizer_permissions",
     "limit_events",
     "moderating_group_ids",
+    "tracking_category_ids",
 }
 
 
@@ -200,7 +202,7 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
                 "Pretix event dashboard (attendee list + check-in)."
             ),
             "visibility_level": GROUP_VISIBILITY_OWNERS_ONLY,
-            "members_visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
+            "members_visibility_level": GROUP_VISIBILITY_OWNERS_ONLY,
             "public_admission": False,
             "allow_membership_requests": False,
             "automatic_membership_email_domains": "",
@@ -222,6 +224,33 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
         },
     )
     return host_group, attendee_group, host_group_id
+
+
+def ensure_group_tracks_city_category(group_name: str, group_id: int, category_id: int) -> None:
+    """Set the organiser group's default notification level to Tracking for its city category."""
+    before_response = discourse_req("GET", f"groups/by-id/{group_id}.json")
+    before = before_response.get("group")
+    if not isinstance(before, dict):
+        raise ApiError(f"Could not read current settings for Discourse group {group_name!r}")
+    current_ids = before.get("tracking_category_ids", [])
+    if not isinstance(current_ids, list) or any(not isinstance(value, int) for value in current_ids):
+        raise ApiError(f"Discourse group {group_name!r} returned invalid tracking category IDs")
+
+    desired = {"tracking_category_ids": [category_id]}
+    if not same_configuration_value("tracking_category_ids", current_ids, desired["tracking_category_ids"]):
+        discourse_req(
+            "PUT",
+            f"groups/{group_id}.json",
+            {"group": desired, "update_existing_users": "true"},
+        )
+
+    after_response = discourse_req("GET", f"groups/by-id/{group_id}.json")
+    after = after_response.get("group")
+    if not isinstance(after, dict) or not same_configuration_value(
+        "tracking_category_ids", after.get("tracking_category_ids"), desired["tracking_category_ids"]
+    ):
+        raise ApiError(f"Discourse group {group_name!r} failed category notification reconciliation")
+    log_resource_status(f"{group_name} category notifications", desired, before)
 
 
 def ensure_discourse_category(city_name: str, host_group: str, attendee_group: str, host_group_id: int) -> None:
@@ -676,6 +705,7 @@ def main() -> None:
         host_group, att_group, host_group_id = ensure_discourse_groups(city.slug, city.city)
         ensure_discourse_category(city.city, host_group, att_group, host_group_id)
         city_category_id = discourse_city_category_id(city.city)
+        ensure_group_tracks_city_category(host_group, host_group_id, city_category_id)
         city_access[city_category_id] = (host_group, host_group_id)
 
     reconcile_organiser_category_access(city_access)

@@ -380,6 +380,52 @@ class MockResponse:
 
 
 class TestProvisioningPermissions:
+    def test_organiser_group_tracks_only_its_city_category(self, monkeypatch):
+        import provision_environment
+
+        responses = iter(
+            [
+                {"group": {"tracking_category_ids": []}},
+                {},
+                {"group": {"tracking_category_ids": [42]}},
+            ]
+        )
+        requests = []
+
+        def request(method, endpoint, payload=None):
+            requests.append((method, endpoint, payload))
+            return next(responses)
+
+        monkeypatch.setattr(provision_environment, "discourse_req", request)
+        provision_environment.ensure_group_tracks_city_category("meetup-organisers-london", 12, 42)
+
+        assert requests[1] == (
+            "PUT",
+            "groups/12.json",
+            {"group": {"tracking_category_ids": [42]}, "update_existing_users": "true"},
+        )
+
+    def test_organiser_group_tracking_default_is_not_rewritten_when_already_set(self, monkeypatch):
+        import provision_environment
+
+        responses = iter(
+            [
+                {"group": {"tracking_category_ids": [42]}},
+                {"group": {"tracking_category_ids": [42]}},
+            ]
+        )
+        requests = []
+
+        def request(method, endpoint, payload=None):
+            requests.append((method, endpoint, payload))
+            return next(responses)
+
+        monkeypatch.setattr(provision_environment, "discourse_req", request)
+        provision_environment.ensure_group_tracks_city_category("meetup-organisers-london", 12, 42)
+
+        assert len(requests) == 2
+        assert all(method == "GET" for method, _, _ in requests)
+
     def test_resource_status_lists_changed_and_already_correct_fields(self, caplog):
         import logging
 

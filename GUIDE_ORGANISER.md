@@ -29,7 +29,7 @@ You log in to both with your **forum account** — one identity, no separate pas
 
 | Group | Who's in it | What it grants |
 |---|---|---|
-| `meetup-organisers-{city}` (e.g., `meetup-organisers-london`) | You and any co-organisers for your city | Hidden group; Category Moderator only on your city's subcategory + scoped Pretix dashboard access. Forum Admin adds members. |
+| `meetup-organisers-{city}` (e.g., `meetup-organisers-london`) | You and any co-organisers for your city | Visible only to group owners; its member list is also visible only to group owners. Discourse tracks your city's subcategory by default. Category Moderator only on your city's subcategory + scoped Pretix dashboard access. Forum Admin adds members. |
 | `meetup-attendee-{city}` | People who subscribe to your city's events | Staff-only group with a staff-only member list for notification subscriptions |
 
 ### What the Community Team handles vs. what you handle
