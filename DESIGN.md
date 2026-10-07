@@ -19,7 +19,7 @@ This document outlines the objectives, core design decisions, and script invento
 ### Identity & Authentication (SSO)
 * **Protocol:** DiscourseConnect (HMAC-SHA256 signature, Base64 payload, single-use nonce).
 * **Identity Key:** Discourse's immutable `external_id` (numeric user ID).
-* **Security & Blocking:** The Pretix SSO plugin enriches the login payload by querying the Discourse Admin API. Logins are actively blocked if the user is Silenced, Suspended, Anonymized (RTBF), or if they are a Privileged User (Admin/Host) without 2FA enabled.
+* **Security & Blocking:** DiscourseConnect's signed `confirmed_2fa=true` assertion is required for staff and organisers; the Admin API is used only to check silenced and suspended status. Login is blocked for a missing 2FA assertion, moderation status, anonymized email, or API failure.
 * **Profile Lock-down:** The `NativeAuthBackend` is completely disabled in Pretix. Users cannot change their email or bypass Discourse authentication locally.
 
 ### Checkout Experience
@@ -38,8 +38,8 @@ This document outlines the objectives, core design decisions, and script invento
 * When syncing content to Pretix's frontpage, only the content **below** the `---` separator is used. The `[event]` BBCode block is excluded because it does not render outside Discourse.
 
 ### Group Permissions (Subcategories vs. Tags)
-* **Decision:** Regional Discourse Subcategories (`Events > London`) with **Category Moderators** instead of a flat structure with Tags.
-* **Reasoning:** Discourse cannot assign edit/modify permissions based on Tags. By using regional subcategories, we can assign the local organiser group (`meetup-organisers-london`) as Category Moderators. This grants them the ability to edit community posts, pin topics, and manage the agenda for their city without requiring global staff rights.
+* **Decision:** Regional Discourse Subcategories (`Events > London`) with **Category Moderators** instead of a flat structure with Tags. Each organiser group is assigned only to its own city subcategory, and event topics are created in that same subcategory.
+* **Reasoning:** Discourse cannot assign edit/modify permissions based on Tags. The provisioner uses `moderating_group_ids` to give each local organiser group category moderation for its city only. Discourse's `enable_category_group_moderation` setting must be enabled; provisioning fails if it is not.
 
 ### Workflow: Hub-and-Spoke (Manual MVP)
 * **Decision:** Event creation is initiated via a request template on the forum and executed by the Ansible Community Team using a CLI script.
@@ -64,14 +64,14 @@ The integration relies on a unified suite of Python scripts that interact with t
   * `check_event_exists` distinguishes confirmed `404` from API failure.
   * Cities registry (`CITIES`) with structured entries containing region, country, city name, and timezone for each active meetup location (currently: London, Barcelona, FakeTown).
   * City helper functions: `get_city` validates lowercase alphabetic slugs against the registered city list. Slug and field value are properties on `CityInfo`.
-  * Shared constants: `TEMPLATE_SLUG`, `CONTACT_EMAIL`, `DISCOURSE_PARENT_CATEGORY_ID`, `DISCOURSE_EVENTS_CATEGORY_ID`, `ORGANIZER_SLUG`.
-  * `pretix_list_all` pagination helper for safely fetching all results from paginated Pretix list endpoints.
+  * Shared constants: `TEMPLATE_SLUG`, `CONTACT_EMAIL`, `DISCOURSE_PARENT_CATEGORY_ID`, `ORGANIZER_SLUG`.
+  * `pretix_list_all` pagination helper validates that pagination links stay within the configured Pretix organizer API before sending the API token.
 
 ### `create_event.py` (CLI Event Provisioning)
 * **Role:** Used by the Community Team to safely launch a new regional meetup.
 * **Function:**
-  1. Validates the registered lowercase city, organiser, template, team, API availability, and duplicate state before mutation.
-  2. Creates the Discourse forum topic authored on behalf of the local organiser (`--organiser`), with a Discourse Calendar `[event]` widget and a placeholder RSVP link.
+  1. Validates the registered lowercase city, organiser, template, team, city subcategory, API availability, and duplicate state before mutation.
+  2. Creates the Discourse forum topic authored on behalf of the local organiser (`--organiser`) in that city's subcategory, with a Discourse Calendar `[event]` widget and a placeholder RSVP link.
   3. Clones the Pretix master template to create the ticketing event; attempts topic cleanup if event creation fails.
   4. Updates the Discourse post with the Pretix RSVP URL.
   5. Syncs only the content below the `---` separator to Pretix's frontpage (excluding Discourse-specific BBCode).

@@ -83,7 +83,7 @@ We've thought carefully about this:
 
 **Authentication.** Pretix doesn't store passwords. All authentication flows through Discourse SSO (DiscourseConnect, HMAC-SHA256 signed). If your forum account is suspended, silenced, or anonymised (right to be forgotten), you're automatically blocked from RSVP.
 
-**2FA enforcement.** Organisers and admins must have two-factor authentication enabled on their forum account. The SSO integration actively checks this and blocks privileged access without 2FA.
+**2FA enforcement.** Organisers and staff must complete Discourse's two-factor challenge during login. Pretix accepts privileged access only when DiscourseConnect's signed response confirms the challenge succeeded.
 
 **Regional isolation.** Each city has its own Pretix Team with scoped permissions. London organisers see London attendees. They cannot view, edit, or export data from any other city.
 
