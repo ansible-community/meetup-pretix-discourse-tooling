@@ -7,7 +7,7 @@ import re
 import sys
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -292,24 +292,54 @@ def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
     """Fetch all results from a paginated Pretix list endpoint."""
     results: list[dict[str, Any]] = []
     resp = pretix_req("GET", endpoint)
+    configured_url = urlparse(PRETIX_URL)
+    api_base = urljoin(
+        f"{PRETIX_URL.rstrip('/')}/",
+        f"api/v1/organizers/{ORGANIZER_SLUG}/",
+    )
+    expected_path_prefix = (
+        f"{configured_url.path.rstrip('/')}/api/v1/organizers/{ORGANIZER_SLUG}/"
+    )
+
+    def checked_next_url(next_url: str) -> str:
+        resolved = urlparse(urljoin(api_base, next_url))
+        try:
+            configured_port = configured_url.port or (443 if configured_url.scheme == "https" else 80)
+            resolved_port = resolved.port or (443 if resolved.scheme == "https" else 80)
+        except ValueError as exc:
+            raise ApiError("Pretix pagination returned an invalid URL") from exc
+        if (
+            resolved.scheme != configured_url.scheme
+            or resolved.hostname != configured_url.hostname
+            or resolved_port != configured_port
+            or resolved.username is not None
+            or resolved.password is not None
+            or not resolved.path.startswith(expected_path_prefix)
+        ):
+            raise ApiError("Pretix pagination URL is outside the configured organizer API")
+        return resolved.geturl()
+
     while True:
         results.extend(resp.get("results", []))
         next_url = resp.get("next")
-        if not next_url:
+        if next_url is None:
             break
+        if not isinstance(next_url, str) or not next_url:
+            raise ApiError("Pretix pagination returned an invalid next URL")
+        page_url = checked_next_url(next_url)
         try:
             page_resp = httpx.get(
-                next_url,
+                page_url,
                 headers={"Authorization": f"Token {PRETIX_API_TOKEN}", "Content-Type": "application/json"},
                 timeout=10,
             )
             if page_resp.status_code != 200:
-                raise ApiError(f"Pretix pagination failed: {page_resp.status_code} {next_url}")
+                raise ApiError(f"Pretix pagination failed: {page_resp.status_code}")
             resp = page_resp.json()
             if not isinstance(resp, dict):
-                raise ApiError(f"Pretix pagination returned non-object JSON: {next_url}")
+                raise ApiError("Pretix pagination returned non-object JSON")
         except (httpx.HTTPError, ValueError) as exc:
-            raise ApiError(f"Pretix pagination failed for {next_url}") from exc
+            raise ApiError("Pretix pagination request failed") from exc
     return results
 
 
