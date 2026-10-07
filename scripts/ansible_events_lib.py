@@ -200,6 +200,8 @@ def pretix_req(method: str, endpoint: str, payload: dict[str, Any] | None = None
     if resp.status_code not in (200, 201, 204):
         raise ApiError(f"Pretix {method} {endpoint} failed: {resp.status_code} {resp.text[:200]}")
     if not resp.text:
+        if method.upper() in {"GET", "POST"}:
+            raise ApiError(f"Pretix {method} {endpoint} returned an empty response body")
         return {}
     try:
         data = resp.json()
@@ -238,6 +240,8 @@ def discourse_req(
     if resp.status_code not in (200, 201, 204):
         raise ApiError(f"Discourse {method} {endpoint} failed: {resp.status_code} {resp.text[:200]}")
     if not resp.text:
+        if method.upper() in {"GET", "POST"}:
+            raise ApiError(f"Discourse {method} {endpoint} returned an empty response body")
         return {}
     try:
         data = resp.json()
