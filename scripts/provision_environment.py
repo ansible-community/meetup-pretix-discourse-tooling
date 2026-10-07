@@ -145,7 +145,7 @@ def main() -> None:
                     "Community Engineering lead.\n\n"
                     "This group grants Pretix site-wide admin access across all organisers and events."
                 ),
-                "visibility_level": 1,
+                "visibility_level": 4,
             }}
     if existing_admin:
         discourse_req("PUT", f"groups/{existing_admin['id']}.json", admin_payload)
