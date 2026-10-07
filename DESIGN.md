@@ -79,21 +79,21 @@ The integration relies on a unified suite of Python scripts that interact with t
 
 ### `pretix_discourse_auth` (Django Plugin — External)
 * **Role:** The inbound/outbound SSO engine running inside Pretix (maintained separately).
-* **Function:** 
+* **Function:**
   * Generates outbound nonces and HMAC signatures.
   * Verifies inbound Discourse payloads.
   * Requires a signed DiscourseConnect `confirmed_2fa=true` assertion for privileged users; this policy has no configuration switch.
   * Uses the Admin API for moderation checks only. Missing or invalid API credentials reject login.
-  * Accepts only `meetup-staff` and exact `meetup-organisers-[a-z]+` claims, mapped to pre-existing Pretix Teams. A missing matching team rejects login.
+  * Accepts exact `meetup-organisers-[a-z]+` claims from the explicit city mapping. A missing matching Pretix team rejects that organiser login. Pretix staff access is managed only in Pretix through the `Ansible Meetup Staff` team; no Forum staff group grants it.
   * Pre-fills attendee name from Discourse SSO payload; local edits in Pretix are never written back to Discourse.
 
 ### `provision_environment.py` (Environment Reconciliation)
 * **Role:** Reconcile Pretix and Discourse resources to the desired state on each run.
-* **Function:** 
-  * Reconciles the global `meetup-staff` group (owners-only), private per-city `meetup-organisers-*` groups, staff-only `meetup-attendee-*` groups, and regional category permissions.
+* **Function:**
+  * Reconciles private per-city `meetup-organisers-*` groups, staff-only `meetup-attendee-*` groups, and regional category permissions. The Forum contains no `meetup-admin` or `meetup-staff` groups.
   * Configures Pretix global settings and custom meta properties (`forum_topic_url`).
   * Generates the `ansible-meetup-template-v6` with strict SSO-friendly checkout rules (single name field, no duplicate email, no payment step), zero-cost ticket items, ICS attachments, and Passbook plugins.
-  * Pre-creates restricted regional Pretix Teams (`Ansible Meetup Organisers - {City}`) with granular permissions (`event.orders:read`, `event.orders:checkin`) so the SSO plugin can map users on day one.
+  * Creates and reconciles regional Pretix teams (`Ansible Meetup Organisers - {City}`) to the exact event set and granular order/check-in permissions for each city. It also creates the Pretix-only `Ansible Meetup Staff` team with access to all events; Pretix admins alone manage its members.
 
 ### `pretix-sync-event.py` (One-Way Data Sync)
 * **Role:** Keeps Pretix in sync with the Discourse forum (the Source of Truth).

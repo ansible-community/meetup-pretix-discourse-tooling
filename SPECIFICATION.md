@@ -539,10 +539,11 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 ### Attack and Misconfiguration Model
 
 - A Pretix lookup returning an error or unknown status is never treated as proof that an event does not exist; the operation stops with `ApiError`.
-- A city slug must match `^[a-z]+$` and be registered in `CITIES`. New cities must be added and deployed before event creation.
+- A city slug must match `^[a-z]+$` and be registered in `CITIES`. The same slug and canonical Pretix team name must be added to the auth repo's `CITY_TEAM_NAME_BY_SLUG`; deploy both repos before provisioning or event creation.
 - The auth plugin accepts only exact `^meetup-organisers-([a-z]+)$` Forum group claims for city access. Pretix staff access is assigned through the Pretix-only `Ansible Meetup Staff` team; Forum claims cannot grant it. Every claimed organiser group must resolve to a unique Pretix team or that organizer login is denied.
 - Discourse groups are reconciled by name on every provisioning run. Organiser groups are hidden (level 4), have staff-only member lists (level 3), and are managed by Forum admins; attendee groups and their member lists are staff-only (level 3). Organiser group permissions and moderator assignments are removed from every category except that group's own city subcategory. City Pretix teams are reconciled to the exact canonical event slug pattern; the Pretix-only staff team retains access to all events and is never populated by Forum claims. Provisioning errors are fatal.
 - Non-local `PRETIX_URL` values must use HTTPS so API tokens are not sent over cleartext HTTP.
+- Pretix session expiry is controlled by the Pretix server, not its organizer API. The auth plugin sets a three-hour idle expiry and disables “keep me logged in”; the current Pretix defaults additionally enforce a 12-hour absolute limit. `provision_environment.py` does not attempt to set an unsupported API field.
 
 ### Known Accepted Risks
 
@@ -746,7 +747,7 @@ The `teams` list endpoint is paginated via `pretix_list_all`. Other list endpoin
 
 ### Hardcoded Cities Registry
 
-The `CITIES` tuple is defined in source code. Adding a new city requires a code change, a lint pass, and re-deployment. There is no database, config file, or API for dynamic city management.
+The `CITIES` tuple is defined in source code. Adding a new city requires a code change in this repo and a matching `CITY_TEAM_NAME_BY_SLUG` entry in the auth repo, followed by deployment of both. There is no database, config file, or API for dynamic city management.
 
 ### Social Media Output
 
