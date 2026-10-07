@@ -257,6 +257,11 @@ def main() -> None:
         logger.info("Enforcing strict settings on template...")
         pretix_req(
             "PATCH",
+            f"events/{TEMPLATE_SLUG}",
+            {"live": False, "is_template": True, "plugins": TEMPLATE_PLUGINS},
+        )
+        pretix_req(
+            "PATCH",
             f"events/{TEMPLATE_SLUG}/settings",
             {
                 "max_items_per_order": 1,
