@@ -307,7 +307,7 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
     existing = matching_categories[0] if matching_categories else None
     before = None
     if existing:
-        before_response = discourse_req("GET", f"categories/{existing['id']}.json")
+        before_response = discourse_req("GET", f"c/{existing['id']}/show.json")
         before = before_response.get("category", before_response)
         if not isinstance(before, dict):
             raise ApiError(f"Could not read current settings for Discourse category {city_name!r}")
@@ -316,10 +316,15 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
     else:
         discourse_req("POST", "categories.json", desired)
     category_id = discourse_city_category_id(city_name)
-    result = discourse_req("GET", f"categories/{category_id}.json")
+    result = discourse_req("GET", f"c/{category_id}/show.json")
     category = result.get("category", result)
-    if any(not same_configuration_value(key, category.get(key), value) for key, value in desired.items()):
-        raise ApiError(f"Discourse category {city_name!r} did not reconcile to city-only access")
+    mismatched_fields = (
+        [key for key, value in desired.items() if not same_configuration_value(key, category.get(key), value)]
+        if isinstance(category, dict)
+        else list(desired)
+    )
+    if mismatched_fields:
+        raise ApiError(f"Discourse category {city_name!r} did not reconcile fields: {', '.join(mismatched_fields)}")
     log_resource_status(
         f"Events > {city_name}",
         desired,
@@ -348,7 +353,7 @@ def reconcile_organiser_category_access(
         category_id = category.get("id")
         if not isinstance(category_id, int):
             raise ApiError("Discourse categories response contains an invalid category ID")
-        detail = discourse_req("GET", f"categories/{category_id}.json")
+        detail = discourse_req("GET", f"c/{category_id}/show.json")
         detail = detail.get("category", detail)
         current_ids = detail.get("moderating_group_ids") if isinstance(detail, dict) else None
         if not isinstance(current_ids, list) or any(not isinstance(group_id, int) for group_id in current_ids):
@@ -386,7 +391,7 @@ def reconcile_organiser_category_access(
             )
 
         if desired_ids != sorted(set(current_ids)) or desired_permissions != permissions:
-            updated = discourse_req("GET", f"categories/{category_id}.json")
+            updated = discourse_req("GET", f"c/{category_id}/show.json")
             updated = updated.get("category", updated)
             updated_ids = updated.get("moderating_group_ids")
             updated_permissions = updated.get("permissions")

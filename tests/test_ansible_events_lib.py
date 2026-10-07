@@ -566,8 +566,8 @@ class TestProvisioningPermissions:
         def request(method, endpoint, payload=None):
             if method == "GET" and endpoint == "categories.json":
                 return {"category_list": {"categories": categories}}
-            if method == "GET" and endpoint.startswith("categories/"):
-                category_id = int(endpoint.split("/")[1].split(".")[0])
+            if method == "GET" and endpoint.startswith("c/") and endpoint.endswith("/show.json"):
+                category_id = int(endpoint.split("/")[1])
                 return {"category": current[category_id]}
             if method == "PUT" and endpoint.startswith("categories/"):
                 category_id = int(endpoint.split("/")[1].split(".")[0])
