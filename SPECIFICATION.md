@@ -75,27 +75,27 @@ A frozen, slotted dataclass representing a meetup city.
 |---|---|---|---|
 | `region` | `str` | `"Europe"` | Geographic region |
 | `country` | `str` | `"UK"` | Country name or code |
+| `slug` | `str` | `"london"` | Explicit lowercase ASCII identifier matching `^[a-z]+$` |
 | `city` | `str` | `"London"` | Display name of the city |
 | `timezone` | `str` | `"Europe/London"` | IANA timezone identifier |
 
-**Derived Properties:**
+**Properties:**
 
 | Property | Derivation | Example |
 |---|---|---|
-| `slug` | Explicit registered ASCII slug matching `^[a-z]+$` | `"london"` |
 | `field_value` | `f"{region}:{country}:{city}"` | `"Europe:UK:London"` |
 
 **Current Registry (immutable tuple):**
 
-| Region | Country | City | Timezone |
-|---|---|---|---|
-| Europe | UK | London | Europe/London |
-| Europe | Spain | Barcelona | Europe/Madrid |
-| Europe | UK | FakeTown | Europe/London |
+| Slug | Region | Country | City | Timezone |
+|---|---|---|---|---|
+| london | Europe | UK | London | Europe/London |
+| barcelona | Europe | Spain | Barcelona | Europe/Madrid |
+| faketown | Europe | UK | FakeTown | Europe/London |
 
 **Constraints:**
-- The registry is an immutable `tuple[CityInfo, ...]`. No duplicate city names.
-- All timezones must contain a `/` (IANA format validation).
+- The registry is an immutable `tuple[CityInfo, ...]`. Slugs and display names must be unique.
+- Each slug must match `^[a-z]+$`; each timezone must resolve through Python's IANA `zoneinfo` database.
 - CityInfo instances are frozen — no attribute mutation after construction.
 
 ### 3.2 API Results and Errors
@@ -136,11 +136,11 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 
 | Entity | Pattern | Example |
 |---|---|---|
-| Discourse staff group | `meetup-staff` | `meetup-staff` |
 | Discourse organiser group | `meetup-organisers-{slug}` | `meetup-organisers-london` |
 | Discourse attendee group | `meetup-attendee-{slug}` | `meetup-attendee-london` |
 | Discourse category | City name under parent category | `London` (child of Events, ID 8) |
 | Pretix team | `Ansible Meetup Organisers - {City}` | `Ansible Meetup Organisers - London` |
+| Pretix staff team | `Ansible Meetup Staff` | `Ansible Meetup Staff` |
 | Pretix event slug | `{slug}-{mon}-{yyyy}` | `london-oct-2026` |
 | Forum topic title | `Ansible Meetup: {City} - {Month Year}` | `Ansible Meetup: London - October 2026` |
 
@@ -152,6 +152,7 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 | `TEMPLATE_SLUG` | `ansible-meetup-template-v6` | Template event identifier |
 | `CONTACT_EMAIL` | `ansible-community-events@redhat.com` | Organizer contact email |
 | `DISCOURSE_PARENT_CATEGORY_ID` | `8` | Parent category for regional subcategories |
+| `STAFF_TEAM_NAME` | `Ansible Meetup Staff` | Pretix event-access team populated only by Pretix admins |
 
 ---
 
@@ -164,8 +165,6 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 **Prerequisites:** `PRETIX_API_TOKEN` and `DISCOURSE_API_KEY` environment variables set. Discourse's `enable_category_group_moderation` setting must be enabled; provisioning fails before making changes if it is disabled or cannot be read.
 
 **Phase 1: Discourse Provisioning**
-
-0. Reconcile global staff group `meetup-staff` by stable name, creating it if absent and updating it if present. Set visibility level 4 (owners only).
 
 For each city in the `CITIES` registry:
 
@@ -206,7 +205,8 @@ For each city in the `CITIES` registry:
 
 9. Reconcile regional teams:
    - Fetch all teams using `pretix_list_all("teams")` (paginated).
-   - For each city, create a missing team or reconcile an existing team's `all_event_permissions`, `limit_event_permissions`, and `limit_events`. The desired event list is rebuilt from all Pretix events whose slug starts with the registered city slug plus `-`; stale and cross-city assignments are removed.
+   - For each city, create a missing team or reconcile an existing team's `all_events`, `all_event_permissions`, `limit_event_permissions`, and `limit_events`. The desired event list is rebuilt from all Pretix events whose slug exactly matches `{city-slug}-{three-letter-month}-{four-digit-year}`; stale and cross-city assignments are removed.
+10. Reconcile the Pretix staff team `Ansible Meetup Staff` with access to all events and all event permissions in the meetup organizer. The provisioner never changes its membership; Pretix admins add and remove staff members. No Forum group grants staff-team membership.
 
 ### 4.2 Event Creation (`create_event.py`)
 
@@ -229,13 +229,13 @@ For each city in the `CITIES` registry:
 | `end_dt` | `dt + 3 hours` |
 | `start_str` | `dt.strftime("%Y-%m-%dT%H:%M:%S")` (no Z suffix — local time) |
 | `end_str` | `end_dt.strftime("%Y-%m-%dT%H:%M:%S")` (no Z suffix — local time) |
-| `event_name` | `f"Ansible Meetup {city.city}"` |
-| `target_slug` | `f"{city.lower().replace(' ', '-')}-{mon}-{yyyy}"` (e.g., `manchester-oct-2026`) |
+| `event_name` | `f"Ansible Meetup {city_info.city}"` |
+| `target_slug` | `f"{city_info.slug}-{month_slug}-{year}"` (e.g., `manchester-oct-2026`) |
 
 **Phase 0: Validation and Pre-flight**
 
 - Reject city names outside `^[a-z]+$` and names absent from `CITIES` before API calls.
-- Verify organiser, exact organiser-group membership, template, Pretix team, and API availability before mutations.
+- Parse local date and validate positive capacity and organiser username before API calls. Verify organiser, exact organiser-group membership, template, Pretix team, and API availability before mutations.
 - `check_event_exists` returns `True`/`False` only for confirmed `200`/`404`; other statuses and network failures raise `ApiError`.
 - Require HTTPS for `PRETIX_URL` except localhost and loopback development endpoints.
 
@@ -294,7 +294,7 @@ For each city in the `CITIES` registry:
 
 - Fetch all teams using `pretix_list_all("teams")` (paginated).
 - Find team named `Ansible Meetup Organisers - {City}`.
-- The provisioner derives each team's complete `limit_events` list from the paginated Pretix events inventory using the registered city slug prefix. It replaces the current list, removing stale or cross-city event grants.
+- The provisioner derives each city's complete `limit_events` list from the paginated Pretix event inventory using the exact canonical event-slug pattern. It replaces the current list, removing stale or cross-city event grants.
 - Event creation adds its new slug to the matching team's list; the provisioner later recomputes that list from event slugs.
 - `PATCH /api/v1/organizers/ansible-meetups/teams/{id}/` → `{"limit_events": [...], "all_event_permissions": false, "limit_event_permissions": ["event.orders:read", "event.orders:checkin"]}`
 
@@ -379,14 +379,14 @@ Blocking rules (evaluated in order, all applicable reasons collected):
 | `is_silenced(api)` — `silenced_till` present and non-null | `"moderation: silenced [until {date}]"` |
 | `is_suspended(api)` — `suspended_till` present and non-null | `"moderation: suspended [until {date}]"` |
 | `is_anonymised(data)` — `email.endswith("@anonymized.invalid")` | `"RTBF: anonymised (block future ticket purchase)"` |
-| Privileged (`meetup-staff` or exact `meetup-organisers-[a-z]+`) without signed `confirmed_2fa=true` | `"privileged but DiscourseConnect did not confirm 2FA"` |
+| Organizer or Pretix staff-team member without signed `confirmed_2fa=true` | `"privileged but DiscourseConnect did not confirm 2FA"` |
 
 Permission levels (highest wins):
 
 | Level | Condition |
 |---|---|
 | `blocked` | Any blocking reason triggered |
-| `staff` | User is in the exact `meetup-staff` group |
+| `staff` | User belongs to the Pretix-only `Ansible Meetup Staff` team or is marked `is_staff` by Pretix configuration |
 | `organiser ({cities})` | User has exact `meetup-organisers-[a-z]+` groups |
 | `regular` | Default |
 
@@ -540,8 +540,8 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 
 - A Pretix lookup returning an error or unknown status is never treated as proof that an event does not exist; the operation stops with `ApiError`.
 - A city slug must match `^[a-z]+$` and be registered in `CITIES`. New cities must be added and deployed before event creation.
-- The auth plugin trusts only `meetup-staff` and exact `^meetup-organisers-([a-z]+)$` group claims. Every claimed organiser group must resolve to a Pretix team or login is denied.
-- Discourse groups are reconciled by name on every provisioning run. Organiser groups are hidden (level 4), have staff-only member lists (level 3), and are managed by forum admins; attendee groups and their member lists are staff-only (level 3). Organiser group permissions and moderator assignments are removed from every category except that group's own city subcategory. Pretix teams are reconciled so their event list contains only events with that city's registered slug prefix. Provisioning errors are fatal.
+- The auth plugin accepts only exact `^meetup-organisers-([a-z]+)$` Forum group claims for city access. Pretix staff access is assigned through the Pretix-only `Ansible Meetup Staff` team; Forum claims cannot grant it. Every claimed organiser group must resolve to a unique Pretix team or that organizer login is denied.
+- Discourse groups are reconciled by name on every provisioning run. Organiser groups are hidden (level 4), have staff-only member lists (level 3), and are managed by Forum admins; attendee groups and their member lists are staff-only (level 3). Organiser group permissions and moderator assignments are removed from every category except that group's own city subcategory. City Pretix teams are reconciled to the exact canonical event slug pattern; the Pretix-only staff team retains access to all events and is never populated by Forum claims. Provisioning errors are fatal.
 - Non-local `PRETIX_URL` values must use HTTPS so API tokens are not sent over cleartext HTTP.
 
 ### Known Accepted Risks
@@ -792,9 +792,9 @@ Who adds new cities? Should the registry be:
 
 Event duration is hardcoded at 3 hours. **Should the rebuild accept a `--duration` CLI argument?** Most meetups are 2-3 hours, but unconferences or all-day workshops may need longer.
 
-### Q6: `meetup-staff` Group Permissions
+### Q6: Pretix staff team
 
-The `meetup-staff` group grants Pretix staff access. Only `meetup-staff` and exact `meetup-organisers-[a-z]+` groups are accepted by the auth plugin.
+The provisioner creates `Ansible Meetup Staff` with access to all meetup events. Only Pretix admins manage its membership. The Forum contains no `meetup-admin` or `meetup-staff` groups, and the auth plugin never maps Forum groups to this team.
 
 ### Q7: Pretix API Rate Limits
 

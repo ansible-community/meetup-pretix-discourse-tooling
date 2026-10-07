@@ -11,6 +11,7 @@ from ansible_events_lib import (
     ANSIBLE_PRIMARY_COLOR,
     ApiError,
     ATTENDEE_GROUP_PREFIX,
+    EVENT_SLUG_RE,
     CITIES,
     CODE_OF_CONDUCT_URL,
     CONTACT_EMAIL,
@@ -22,6 +23,9 @@ from ansible_events_lib import (
     MIGRATED_GROUP_NAME,
     ORGANISERS_GROUP_PREFIX,
     ORGANISER_PERMISSIONS,
+    STAFF_TEAM_NAME,
+    GROUP_VISIBILITY_OWNERS_ONLY,
+    GROUP_VISIBILITY_STAFF_ONLY,
     PRIVACY_POLICY_URL,
     TEMPLATE_PLUGINS,
     TEMPLATE_SLUG,
@@ -105,8 +109,8 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
                     f"{city_name} Events subcategory and scoped access to the "
                     "Pretix event dashboard (attendee list + check-in)."
                 ),
-                "visibility_level": 4,
-                "members_visibility_level": 3,
+                "visibility_level": GROUP_VISIBILITY_OWNERS_ONLY,
+                "members_visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
                 "public_admission": False,
                 "allow_membership_requests": False,
                 "automatic_membership_email_domains": "",
@@ -120,8 +124,8 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
                     "Members receive notifications when new events are posted. "
                     "Membership is hidden (visible to forum admins only) to protect location privacy."
                 ),
-                "visibility_level": 3,
-                "members_visibility_level": 3,
+                "visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
+                "members_visibility_level": GROUP_VISIBILITY_STAFF_ONLY,
             })
     return host_group, attendee_group, host_group_id
 
@@ -158,6 +162,14 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
         discourse_req("PUT", f"categories/{existing['id']}.json", desired)
     else:
         discourse_req("POST", "categories.json", desired)
+    category_id = discourse_city_category_id(city_name)
+    result = discourse_req("GET", f"categories/{category_id}.json")
+    category = result.get("category", result)
+    if (
+        category.get("permissions") != desired["permissions"]
+        or category.get("moderating_group_ids") != desired["moderating_group_ids"]
+    ):
+        raise ApiError(f"Discourse category {city_name!r} did not reconcile to city-only access")
 
 
 def reconcile_organiser_category_access(
@@ -235,6 +247,18 @@ def reconcile_organiser_category_access(
                 f"categories/{category_id}.json",
                 {"permissions": desired_permissions},
             )
+
+        if desired_ids != sorted(set(current_ids)) or desired_permissions != permissions:
+            updated = discourse_req("GET", f"categories/{category_id}.json")
+            updated = updated.get("category", updated)
+            updated_ids = updated.get("moderating_group_ids")
+            updated_permissions = updated.get("permissions")
+            if (
+                not isinstance(updated_ids, list)
+                or sorted(set(updated_ids)) != desired_ids
+                or updated_permissions != desired_permissions
+            ):
+                raise ApiError(f"Discourse category {category_id} failed access reconciliation")
 
 
 def ensure_category_group_moderation_enabled() -> None:
@@ -437,6 +461,35 @@ def main() -> None:
                         },
                     )
 
+    logger.info("Provisioning Pretix staff team...")
+    staff_teams = [team for team in pretix_list_all("teams") if team.get("name") == STAFF_TEAM_NAME]
+    if len(staff_teams) > 1:
+        raise ApiError(f"Multiple Pretix teams are named {STAFF_TEAM_NAME!r}")
+    staff_team_payload = {
+        "name": STAFF_TEAM_NAME,
+        "all_events": True,
+        "limit_events": [],
+        "all_event_permissions": True,
+        "limit_event_permissions": [],
+        "all_organizer_permissions": False,
+        "limit_organizer_permissions": [],
+    }
+    if staff_teams:
+        pretix_req("PATCH", f"teams/{staff_teams[0]['id']}", staff_team_payload)
+        staff_team = pretix_req("GET", f"teams/{staff_teams[0]['id']}")
+    else:
+        created_staff_team = pretix_req("POST", "teams", staff_team_payload)
+        staff_team_id = created_staff_team.get("id")
+        if not isinstance(staff_team_id, int):
+            raise ApiError(f"Could not resolve Pretix staff team {STAFF_TEAM_NAME!r}")
+        staff_team = pretix_req("GET", f"teams/{staff_team_id}")
+    if any(
+        staff_team.get(key) != value
+        for key, value in staff_team_payload.items()
+        if key != "name"
+    ) or staff_team.get("name") != STAFF_TEAM_NAME:
+        raise ApiError(f"Pretix staff team {STAFF_TEAM_NAME!r} did not reconcile to the requested settings")
+
     logger.info("Provisioning regional Pretix Teams...")
     all_teams = pretix_list_all("teams")
     all_events = pretix_list_all("events")
@@ -445,10 +498,13 @@ def main() -> None:
         city_events = sorted(
             event["slug"]
             for event in all_events
-            if isinstance(event.get("slug"), str) and event["slug"].startswith(f"{city.slug}-")
+            if isinstance(event.get("slug"), str)
+            and (match := EVENT_SLUG_RE.fullmatch(event["slug"]))
+            and match.group(1) == city.slug
         )
         desired_team = {
             "name": city.team_name,
+            "all_events": False,
             "all_event_permissions": False,
             "limit_event_permissions": ORGANISER_PERMISSIONS,
             "limit_events": city_events,

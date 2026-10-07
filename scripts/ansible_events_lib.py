@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
@@ -49,10 +50,15 @@ EVENT_NAME_PREFIX = "Ansible Meetup"
 ORGANISER_TEAM_PREFIX = "Ansible Meetup Organisers"
 ORGANISERS_GROUP_PREFIX = "meetup-organisers"
 ATTENDEE_GROUP_PREFIX = "meetup-attendee"
-STAFF_GROUP_NAME = "meetup-staff"
+STAFF_TEAM_NAME = "Ansible Meetup Staff"
+GROUP_VISIBILITY_OWNERS_ONLY = 4
+GROUP_VISIBILITY_STAFF_ONLY = 3
 MIGRATED_GROUP_NAME = "meetup-migrated-from-meetup-pro"
 CITY_NAME_RE = re.compile(r"^[a-z]+$")
 ORGANIZERS_GROUP_RE = re.compile(r"^meetup-organisers-([a-z]+)$")
+MONTH_SLUGS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+EVENT_SLUG_RE = re.compile(rf"^([a-z]+)-({'|'.join(MONTH_SLUGS)})-[0-9]{{4}}$")
+API_REQUEST_TIMEOUT_SECONDS = 10
 
 # --- Pretix template ---
 TEMPLATE_SLUG = "ansible-meetup-template-v6"
@@ -85,8 +91,12 @@ class CityInfo:
     def __post_init__(self) -> None:
         if not CITY_NAME_RE.fullmatch(self.slug):
             raise ValueError(f"City slug must contain lowercase ASCII letters only: {self.slug!r}")
-        if not self.city.strip():
-            raise ValueError("City display name must not be empty")
+        if not self.city.strip() or not self.region.strip() or not self.country.strip():
+            raise ValueError("City display name, region, and country must not be empty")
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"Invalid IANA timezone: {self.timezone!r}") from exc
 
     @property
     def field_value(self) -> str:
@@ -118,6 +128,8 @@ CITIES: tuple[CityInfo, ...] = (
 
 if len({city.slug for city in CITIES}) != len(CITIES):
     raise ValueError("City slugs in CITIES must be unique")
+if len({city.city.casefold() for city in CITIES}) != len(CITIES):
+    raise ValueError("City display names in CITIES must be unique")
 
 
 def get_city(name: str) -> CityInfo | None:
@@ -236,7 +248,7 @@ def pretix_req(method: str, endpoint: str, payload: dict[str, Any] | None = None
         "Content-Type": "application/json",
     }
     try:
-        resp = httpx.request(method, url, json=payload, headers=headers, timeout=10)
+        resp = httpx.request(method, url, json=payload, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
     except httpx.HTTPError as exc:
         raise ApiError(f"Pretix {method} {endpoint} connection error: {exc}") from exc
     if resp.status_code not in (200, 201, 204):
@@ -276,7 +288,7 @@ def discourse_req(
         "Content-Type": "application/json",
     }
     try:
-        resp = httpx.request(method, url, json=payload, headers=headers, timeout=10)
+        resp = httpx.request(method, url, json=payload, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
     except httpx.HTTPError as exc:
         raise ApiError(f"Discourse {method} {endpoint} connection error: {exc}") from exc
     if resp.status_code not in (200, 201, 204):
@@ -326,7 +338,10 @@ def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
         return resolved.geturl()
 
     while True:
-        results.extend(resp.get("results", []))
+        batch = resp.get("results")
+        if not isinstance(batch, list) or any(not isinstance(item, dict) for item in batch):
+            raise ApiError("Pretix list response contains invalid results")
+        results.extend(batch)
         next_url = resp.get("next")
         if next_url is None:
             break
@@ -337,7 +352,7 @@ def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
             page_resp = httpx.get(
                 page_url,
                 headers={"Authorization": f"Token {PRETIX_API_TOKEN}", "Content-Type": "application/json"},
-                timeout=10,
+                timeout=API_REQUEST_TIMEOUT_SECONDS,
             )
             if page_resp.status_code != 200:
                 raise ApiError(f"Pretix pagination failed: {page_resp.status_code}")
@@ -354,7 +369,7 @@ def check_event_exists(slug: str) -> bool:
     url = f"{PRETIX_URL}/api/v1/organizers/{ORGANIZER_SLUG}/events/{slug}/"
     headers = {"Authorization": f"Token {PRETIX_API_TOKEN}"}
     try:
-        resp = httpx.get(url, headers=headers, timeout=10)
+        resp = httpx.get(url, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
     except httpx.HTTPError as exc:
         raise ApiError(f"Pretix check_event_exists {slug} connection error: {exc}") from exc
     if resp.status_code == 404:

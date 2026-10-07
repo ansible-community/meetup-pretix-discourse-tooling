@@ -19,6 +19,7 @@ from ansible_events_lib import (
     ORGANISER_PERMISSIONS,
     ORGANISER_TEAM_PREFIX,
     ORGANIZER_SLUG,
+    MONTH_SLUGS,
     PRETIX_URL,
     TEMPLATE_SLUG,
     check_event_exists,
@@ -162,7 +163,7 @@ def main() -> None:
     start_str = dt.strftime("%Y-%m-%dT%H:%M:%S")
     end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
     event_name = f"{EVENT_NAME_PREFIX} {city_title}"
-    target_slug = f"{city_info.slug}-{dt.strftime('%b').lower()}-{dt.strftime('%Y')}"
+    target_slug = f"{city_info.slug}-{MONTH_SLUGS[dt.month - 1]}-{dt.year}"
 
     if args.venue and args.address:
         venue_display = f"{args.venue}, {args.address}"

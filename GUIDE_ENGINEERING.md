@@ -144,7 +144,7 @@ api_timeout = 10
 | `api_key` | Discourse Admin API key with "All Users" scope. |
 | `organizer` | Pretix organizer slug — must match `ORGANIZER_SLUG` in `ansible_events_lib.py`. |
 
-The plugin hardcodes `meetup-staff` and `meetup-organisers-{city}` as the only groups that grant Pretix privileges. DiscourseConnect always requests 2FA; the signed response must positively attest that the challenge was completed for staff and organisers. The Discourse Admin API key is required for every login to verify account security status. Missing or invalid API credentials deny login.
+The plugin accepts only `meetup-organisers-{city}` claims for city team access. DiscourseConnect always requests 2FA; the signed response must positively attest to the challenge for organizer claims and members of the Pretix staff team. Pretix admins alone manage staff-team membership. The Discourse Admin API key is required for every login to verify account security status. Missing or invalid API credentials deny login.
 
 Restart Pretix after any `pretix.cfg` changes (config is loaded at import time).
 
@@ -178,7 +178,6 @@ This script reconciles the infrastructure in Discourse and Pretix to the configu
 
 | Resource | Example | Purpose |
 |----------|---------|---------|
-| Staff group | `meetup-staff` | Grants Pretix staff access via SSO |
 | Organiser group (per city) | `meetup-organisers-london` | Grants the city's scoped Pretix and category access |
 | Attendee group (per city) | `meetup-attendee-london` | Hidden city subscriptions |
 | Subcategory (per city) | `Events > London` | Regional forum category |
@@ -201,10 +200,10 @@ uv run python scripts/provision_environment.py
 
 ### What to check after
 
-1. Visit Discourse admin → Groups — verify `meetup-staff`, `meetup-organisers-{city}`, and `meetup-attendee-{city}` groups exist. Staff visibility is owners-only (level 4); organiser groups are hidden (level 4) with staff-only member lists (level 3), no group owners, public admission, membership requests, or automatic email-domain membership; attendee groups and their member lists are staff-only (level 3). Forum admins manage organiser membership.
+1. Visit Discourse admin → Groups — verify `meetup-organisers-{city}` and `meetup-attendee-{city}` groups exist. Organiser groups are hidden (level 4) with staff-only member lists (level 3), no group owners, public admission, membership requests, or automatic email-domain membership; attendee groups and their member lists are staff-only (level 3). Forum admins manage organiser membership. The Forum has no `meetup-admin` or `meetup-staff` groups.
 2. In Discourse admin → Settings, verify category group moderation is enabled. Visit each city subcategory and confirm only that city's `meetup-organisers-{city}` group has category permissions and moderator status. Confirm organiser groups have no explicit permissions or moderator assignments on other categories. Event topics are created directly in that city subcategory.
 3. Visit Pretix admin → Events — verify the template event `ansible-meetup-template-v6` exists (not published).
-4. Visit Pretix admin → Teams — verify `Ansible Meetup Organisers - {City}` teams exist.
+4. Visit Pretix admin → Teams — verify city teams have only their city's events, and `Ansible Meetup Staff` has all meetup events. Pretix admins alone add and remove members of the staff team.
 
 ### When to re-run
 
@@ -330,7 +329,7 @@ CITIES: tuple[CityInfo, ...] = (
 )
 ```
 
-The `slug` is an explicit lowercase ASCII identifier containing letters only; `city` is the canonical display name used in forum labels and Pretix team names. Add both values to `CITIES` and deploy that code before running `create_event.py`. Unknown or unregistered city slugs are rejected; no display name is inferred from the slug.
+The `slug` is an explicit lowercase ASCII identifier containing letters only; `city` is the canonical display name used in forum labels and Pretix team names. Add both values to `CITIES`, add the matching slug-to-team-name entry to `CITY_TEAM_NAME_BY_SLUG` in the auth repo, and deploy both repos before provisioning or running `create_event.py`. Unknown or unregistered city slugs are rejected; no display name is inferred from the slug.
 
 Use [IANA timezone identifiers](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for the `timezone` field.
 
@@ -559,7 +558,7 @@ Set the required environment variables (see [Prerequisites](#prerequisites)).
 | `ORGANIZER_SLUG` | `ansible-meetups` | Pretix organizer |
 | `TEMPLATE_SLUG` | `ansible-meetup-template-v6` | Master template event |
 | `ORGANISERS_GROUP_PREFIX` | `meetup-organisers` | Discourse group prefix for organisers |
-| `STAFF_GROUP_NAME` | `meetup-staff` | Discourse group for Pretix staff access |
+| `STAFF_TEAM_NAME` | `Ansible Meetup Staff` | Pretix-only team for staff access; membership is admin-managed |
 | `ORGANISER_TEAM_PREFIX` | `Ansible Meetup Organisers` | Pretix team name prefix |
 
 ### Event slug format

@@ -31,7 +31,6 @@ You log in to both with your **forum account** — one identity, no separate pas
 |---|---|---|
 | `meetup-organisers-{city}` (e.g., `meetup-organisers-london`) | You and any co-organisers for your city | Hidden group; Category Moderator only on your city's subcategory + scoped Pretix dashboard access. Forum Admin adds members. |
 | `meetup-attendee-{city}` | People who subscribe to your city's events | Staff-only group with a staff-only member list for notification subscriptions |
-| `meetup-staff` | The Ansible Community Team | Owners-only group; global Pretix staff access across all cities |
 
 ### What the Community Team handles vs. what you handle
 

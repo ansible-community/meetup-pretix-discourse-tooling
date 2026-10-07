@@ -13,10 +13,11 @@ v2 policy
       silenced (muted)                 -> "blocked: moderation (silenced)"
       suspended                        -> "blocked: suspended"  (rare: SSO shouldn't reach here)
       RTBF / anonymised email pattern  -> "blocked: RTBF (anonymised)"
-      privileged (meetup-staff OR meetup-organisers-{city}) without confirmed_2fa=true
+      privileged (meetup-organisers-{city}) without confirmed_2fa=true
                                        -> "blocked: DiscourseConnect did not confirm 2FA"
-* Otherwise permission (highest wins): admin > host(city list) > regular.
+* Otherwise permission: host(city list) > regular.
 * Regular users can always log in (every Discourse user can buy a ticket).
+* This diagnostic does not model Pretix staff-team membership and is not the production auth path.
 
 Endpoints:
   /            landing: login link + last analysis summary
@@ -61,7 +62,6 @@ CALLBACK_URL = os.environ.get("CALLBACK_URL", "http://localhost:5000/callback")
 API_KEY = os.environ.get("DISCOURSE_API_KEY")
 API_USER = "system"
 REQUIRE_2FA = True
-STAFF_GROUP = "meetup-staff"
 ORGANIZERS_GROUP_RE = re.compile(r"^meetup-organisers-([a-z]+)$")
 MEETUP_KEYWORD = "meetup"
 
@@ -162,9 +162,8 @@ def analyse(data: dict) -> dict:
     cities = [ORGANIZERS_GROUP_RE.fullmatch(g).group(1) for g in organiser_groups]
     meetup_groups = sorted(g for g in groups_set if MEETUP_KEYWORD in g.lower())
 
-    is_admin = STAFF_GROUP in groups_set
     is_mod = data.get("moderator") == "true"
-    privileged = is_admin or bool(organiser_groups)
+    privileged = bool(organiser_groups)
 
     # Admin API enrichment (only when API key set)
     api = fetch_admin_user(external_id)
@@ -202,8 +201,6 @@ def analyse(data: dict) -> dict:
 
     if blocked:
         permission = "blocked"
-    elif is_admin:
-        permission = "admin"
     elif organiser_groups:
         permission = "host (" + ", ".join(cities) + ")"
     else:
@@ -214,7 +211,6 @@ def analyse(data: dict) -> dict:
         "username": data.get("username"),
         "email": data.get("email"),
         "name": data.get("name"),
-        "admin": is_admin,
         "moderator": is_mod,
         "avatar_url": data.get("avatar_url"),
         "all_groups": sorted(groups_set),

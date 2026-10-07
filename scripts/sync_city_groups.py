@@ -25,6 +25,7 @@ from typing import Any
 
 import httpx
 from ansible_events_lib import (
+    API_REQUEST_TIMEOUT_SECONDS,
     ATTENDEE_GROUP_PREFIX,
     CITIES,
     DISCOURSE_API_KEY,
@@ -47,20 +48,20 @@ def _headers() -> dict[str, str | None]:
 
 def _get(path: str, **params: Any) -> Any:
     time.sleep(API_PAUSE)
-    resp = httpx.get(f"{DISCOURSE_URL}/{path}", headers=_headers(), params=params, timeout=30)  # type: ignore[arg-type]
+    resp = httpx.get(f"{DISCOURSE_URL}/{path}", headers=_headers(), params=params, timeout=API_REQUEST_TIMEOUT_SECONDS)  # type: ignore[arg-type]
     resp.raise_for_status()
     return resp.json()
 
 
 def _put(path: str, payload: dict[str, Any]) -> None:
     time.sleep(API_PAUSE)
-    resp = httpx.put(f"{DISCOURSE_URL}/{path}", headers=_headers(), json=payload, timeout=30)  # type: ignore[arg-type]
+    resp = httpx.put(f"{DISCOURSE_URL}/{path}", headers=_headers(), json=payload, timeout=API_REQUEST_TIMEOUT_SECONDS)  # type: ignore[arg-type]
     resp.raise_for_status()
 
 
 def _delete(path: str, payload: dict[str, Any]) -> None:
     time.sleep(API_PAUSE)
-    resp = httpx.request("DELETE", f"{DISCOURSE_URL}/{path}", headers=_headers(), json=payload, timeout=30)  # type: ignore[arg-type]
+    resp = httpx.request("DELETE", f"{DISCOURSE_URL}/{path}", headers=_headers(), json=payload, timeout=API_REQUEST_TIMEOUT_SECONDS)  # type: ignore[arg-type]
     resp.raise_for_status()
 
 
