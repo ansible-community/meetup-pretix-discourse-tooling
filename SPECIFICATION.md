@@ -128,7 +128,7 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 | Name | `TEMPLATE: Standard Meetup` |
 | Live | `False` (never published) |
 | Currency | `USD` |
-| Plugins | `pretix.plugins.sendmail`, `pretix.plugins.ticketoutputpdf` |
+| Plugins | Inherit Pretix's configured default plugins; provisioning does not override the plugin set |
 | Default Item | `RSVP` — price `0.00`, `active: True`, `admission: True` |
 | Default Quota | `Capacity` — size `100`, linked to RSVP item |
 

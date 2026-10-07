@@ -160,7 +160,7 @@ After installing `pretix-passbook`, configure in Pretix admin → Organizer → 
 
 - Upload an Apple Developer certificate (.p12 file) for signing .pkpass files
 - Set the organisation name and pass style
-- Enable the plugin on the event template (added to `TEMPLATE_PLUGINS` automatically)
+- Enable the plugin on the event template in Pretix. Provisioning preserves Pretix's configured plugin selection and does not add plugins automatically.
 
 Without the certificate, Apple Wallet passes won't generate. Google Wallet passes require a separate Google Pay API setup.
 

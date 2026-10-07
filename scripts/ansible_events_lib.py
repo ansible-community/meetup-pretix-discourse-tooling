@@ -144,18 +144,6 @@ def get_city(name: str) -> CityInfo | None:
     return None
 
 
-TEMPLATE_PLUGINS: list[str] = [
-    "pretix.plugins.sendmail",
-    "pretix.plugins.ticketoutputpdf",
-    "pretix.plugins.checkinlists",
-    "pretix.plugins.pretixdroid",
-    "pretix.plugins.webcheckin",
-    "pretix.plugins.statistics",
-    "pretix.plugins.badges",
-    "pretix_passbook",
-]
-
-
 def discourse_user_exists(username: str) -> bool:
     """Check whether a Discourse user exists by username."""
     resp = discourse_req("GET", f"u/{username}.json")

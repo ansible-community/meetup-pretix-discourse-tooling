@@ -27,7 +27,6 @@ from ansible_events_lib import (
     GROUP_VISIBILITY_OWNERS_ONLY,
     GROUP_VISIBILITY_STAFF_ONLY,
     PRIVACY_POLICY_URL,
-    TEMPLATE_PLUGINS,
     TEMPLATE_SLUG,
     USER_CITY_FIELD_ID,
     check_event_exists,
@@ -479,7 +478,6 @@ def main() -> None:
                 "is_template": True,
                 "currency": "USD",
                 "date_from": "2026-12-31T18:00:00Z",
-                "plugins": TEMPLATE_PLUGINS,
             },
         )
         if creation:
@@ -495,7 +493,7 @@ def main() -> None:
         pretix_req(
             "PATCH",
             f"events/{TEMPLATE_SLUG}",
-            {"live": False, "is_template": True, "plugins": TEMPLATE_PLUGINS},
+            {"live": False, "is_template": True},
         )
         pretix_req(
             "PATCH",
