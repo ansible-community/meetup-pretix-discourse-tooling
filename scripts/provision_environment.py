@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Idempotent provisioning of Discourse groups/categories and Pretix template/teams.
+"""Reconcile Discourse groups/categories and Pretix template/teams to desired state.
 
 Safe to run repeatedly. Designed for both initial setup and ongoing maintenance
 as new cities are added to the CITIES registry.
@@ -10,6 +10,7 @@ from __future__ import annotations
 from ansible_events_lib import (
     ADMIN_GROUP_NAME,
     ANSIBLE_PRIMARY_COLOR,
+    ApiError,
     CITIES,
     CODE_OF_CONDUCT_URL,
     CONTACT_EMAIL,
@@ -37,12 +38,20 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str]:
     host_group = f"meetup-host-{city_slug}"
     attendee_group = f"meetup-attendee-{city_slug}"
 
-    logger.info("Ensuring group %s...", host_group)
-    discourse_req(
-        "POST",
-        "admin/groups.json",
-        {
-            "group": {
+    def ensure_group(name: str, group: dict) -> None:
+        groups = discourse_req("GET", "admin/groups.json").get("groups", [])
+        existing = next((item for item in groups if item.get("name") == name), None)
+        payload = {"group": group}
+        if existing:
+            logger.info("Reconciling group %s...", name)
+            result = discourse_req("PUT", f"groups/{existing['id']}.json", payload)
+        else:
+            logger.info("Creating group %s...", name)
+            result = discourse_req("POST", "admin/groups.json", payload)
+        if not result:
+            raise ApiError(f"Discourse did not confirm group reconciliation for {name}")
+
+    ensure_group(host_group, {
                 "name": host_group,
                 "full_name": f"Ansible Meetup Organisers - {city_name}",
                 "bio_raw": (
@@ -54,15 +63,8 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str]:
                     "Pretix event dashboard (attendee list + check-in)."
                 ),
                 "visibility_level": 2,
-            },
-        },
-    )
-    logger.info("Ensuring group %s...", attendee_group)
-    discourse_req(
-        "POST",
-        "admin/groups.json",
-        {
-            "group": {
+            })
+    ensure_group(attendee_group, {
                 "name": attendee_group,
                 "full_name": f"Ansible Meetup Attendees - {city_name}",
                 "bio_raw": (
@@ -71,18 +73,13 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str]:
                     "Membership is hidden (visible to forum admins only) to protect location privacy."
                 ),
                 "visibility_level": 3,
-            },
-        },
-    )
+            })
     return host_group, attendee_group
 
 
 def ensure_discourse_category(city_name: str, host_group: str, attendee_group: str) -> None:
     logger.info("Ensuring category Events > %s...", city_name)
-    discourse_req(
-        "POST",
-        "categories.json",
-        {
+    desired = {
             "name": city_name,
             "parent_category_id": DISCOURSE_PARENT_CATEGORY_ID,
             "color": "EE0000",
@@ -95,8 +92,16 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
             ),
             "permissions": {"everyone": 1, host_group: 1, attendee_group: 1},
             "reviewable_by_group_name": host_group,
-        },
-    )
+        }
+    categories = discourse_req("GET", "categories.json").get("category_list", {}).get("categories", [])
+    existing = next((c for c in categories if c.get("name", "").lower() == city_name.lower()
+                     and c.get("parent_category_id") == DISCOURSE_PARENT_CATEGORY_ID), None)
+    if existing:
+        result = discourse_req("PUT", f"categories/{existing['id']}.json", desired)
+    else:
+        result = discourse_req("POST", "categories.json", {"category": desired})
+    if not result:
+        raise ApiError(f"Discourse did not confirm category reconciliation for {city_name}")
 
 
 def ensure_user_field_options() -> None:
@@ -105,9 +110,8 @@ def ensure_user_field_options() -> None:
 
     # GET uses hyphenated path, PUT uses underscored path (Discourse routing)
     resp = discourse_req("GET", f"admin/config/user-fields/{USER_CITY_FIELD_ID}.json")
-    if not resp or not isinstance(resp, dict):
-        logger.warning("Could not fetch user field %d", USER_CITY_FIELD_ID)
-        return
+    if not resp:
+        raise RuntimeError(f"Could not fetch user field {USER_CITY_FIELD_ID}")
 
     current_options = set(resp.get("user_field", {}).get("options", []))
     desired_options = {city.field_value for city in CITIES}
@@ -133,11 +137,9 @@ def main() -> None:
     logger.info("--- 1. DISCOURSE PROVISIONING ---")
 
     logger.info("Ensuring group %s...", ADMIN_GROUP_NAME)
-    discourse_req(
-        "POST",
-        "admin/groups.json",
-        {
-            "group": {
+    groups = discourse_req("GET", "admin/groups.json").get("groups", [])
+    existing_admin = next((g for g in groups if g.get("name") == ADMIN_GROUP_NAME), None)
+    admin_payload = {"group": {
                 "name": ADMIN_GROUP_NAME,
                 "full_name": "Ansible Meetup Admins",
                 "bio_raw": (
@@ -147,16 +149,18 @@ def main() -> None:
                     "This group grants Pretix site-wide admin access across all organisers and events."
                 ),
                 "visibility_level": 1,
-            },
-        },
-    )
+            }}
+    if existing_admin:
+        result = discourse_req("PUT", f"groups/{existing_admin['id']}.json", admin_payload)
+    else:
+        result = discourse_req("POST", "admin/groups.json", admin_payload)
+    if not result:
+        raise ApiError(f"Discourse did not confirm group reconciliation for {ADMIN_GROUP_NAME}")
 
     logger.info("Ensuring group %s...", MIGRATED_GROUP_NAME)
-    discourse_req(
-        "POST",
-        "admin/groups.json",
-        {
-            "group": {
+    groups = discourse_req("GET", "admin/groups.json").get("groups", [])
+    existing_migrated = next((g for g in groups if g.get("name") == MIGRATED_GROUP_NAME), None)
+    migrated_payload = {"group": {
                 "name": MIGRATED_GROUP_NAME,
                 "full_name": "Ansible Meetup - Migrated from Meetup Pro",
                 "bio_raw": (
@@ -166,9 +170,13 @@ def main() -> None:
                     "Membership is managed automatically via invite links."
                 ),
                 "visibility_level": 3,
-            },
-        },
-    )
+            }}
+    if existing_migrated:
+        result = discourse_req("PUT", f"groups/{existing_migrated['id']}.json", migrated_payload)
+    else:
+        result = discourse_req("POST", "admin/groups.json", migrated_payload)
+    if not result:
+        raise ApiError(f"Discourse did not confirm group reconciliation for {MIGRATED_GROUP_NAME}")
 
     for city in CITIES:
         host_group, att_group = ensure_discourse_groups(city.slug, city.city)
@@ -187,7 +195,7 @@ def main() -> None:
         },
     )
     if not org_resp:
-        logger.warning("Failed to update organizer settings")
+        raise RuntimeError("Failed to update organizer settings")
 
     logger.info("Configuring branding, footer links, and legal URLs...")
     pretix_req(
@@ -208,7 +216,7 @@ def main() -> None:
     )
 
     props_resp = pretix_req("GET", "event_meta_properties")
-    if props_resp and isinstance(props_resp, dict):
+    if props_resp:
         props = props_resp.get("results", [])
         if not any(p["name"] == "forum_topic_url" for p in props):
             meta_resp = pretix_req(
@@ -268,7 +276,7 @@ def main() -> None:
             },
         )
         if not settings_resp:
-            logger.warning("Failed to update template settings")
+            raise ApiError("Failed to reconcile Pretix template settings")
 
         items_resp = pretix_req("GET", f"events/{TEMPLATE_SLUG}/items")
         if items_resp and isinstance(items_resp, dict):
@@ -302,22 +310,31 @@ def main() -> None:
     all_teams = pretix_list_all("teams")
     existing_teams = {t["name"]: t for t in all_teams}
     for city in CITIES:
-        if city.team_name not in existing_teams:
+        desired_team = {
+            "name": city.team_name,
+            "all_event_permissions": False,
+            "limit_event_permissions": ORGANISER_PERMISSIONS,
+            "limit_events": existing_teams.get(city.team_name, {}).get("limit_events", []),
+        }
+        if city.team_name in existing_teams:
+            team_resp = pretix_req("GET", f"teams/{existing_teams[city.team_name]['id']}")
+            desired_team["limit_events"] = team_resp.get("limit_events", [])
+            team_resp = pretix_req("PATCH", f"teams/{existing_teams[city.team_name]['id']}", desired_team)
+        else:
             team_resp = pretix_req(
                 "POST",
                 "teams",
-                {
-                    "name": city.team_name,
-                    "all_event_permissions": False,
-                    "limit_event_permissions": ORGANISER_PERMISSIONS,
-                    "limit_events": [],
-                },
+                desired_team,
             )
             if not team_resp:
-                logger.warning("Failed to create team %r", city.team_name)
+                raise ApiError(f"Failed to reconcile Pretix team {city.team_name!r}")
 
     logger.info("--- PROVISIONING COMPLETE ---")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ApiError as exc:
+        logger.error("Could not reconcile environment: %s", exc)
+        raise SystemExit(1) from exc

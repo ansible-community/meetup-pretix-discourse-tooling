@@ -7,9 +7,11 @@ from datetime import datetime, timedelta
 
 from ansible_events_lib import (
     CODE_OF_CONDUCT_URL,
+    CITY_NAME_RE,
     DEFAULT_ITEM_NAME,
     DEFAULT_ITEM_PRICE,
     DEFAULT_QUOTA_NAME,
+    ApiError,
     DISCOURSE_EVENTS_CATEGORY_ID,
     DISCOURSE_URL,
     EVENT_NAME_PREFIX,
@@ -114,10 +116,8 @@ Feel free to reach out if you have questions or want to propose a talk topic!"""
 
 
 def main() -> None:
-    pre_flight_checks()
-
     parser = argparse.ArgumentParser(description="Generate an Ansible Meetup with Discourse Calendar integration.")
-    parser.add_argument("--city", required=True, help="E.g., London")
+    parser.add_argument("--city", required=True, help="Registered lowercase city slug, e.g. london")
     parser.add_argument("--date", required=True, help="Event local time (e.g., '2026-10-31T18:00:00')")
     parser.add_argument("--capacity", required=True, type=int, help="Venue capacity limit")
     parser.add_argument("--organiser", required=True, help="Discourse username of the local organiser")
@@ -125,14 +125,14 @@ def main() -> None:
     parser.add_argument("--address", default=None, help="Venue address (e.g., '1 Southampton Row, London WC1B 5HA')")
     args = parser.parse_args()
 
-    if not re.match(r"^[A-Za-z \-]+$", args.city):
-        logger.error("Invalid city name %r: only letters, spaces, and hyphens allowed", args.city)
-        raise SystemExit(1)
-
     city_info = get_city(args.city)
-    event_timezone = city_info.timezone if city_info else "UTC"
-    city_title = args.city.title()
-    city_slug = args.city.lower().replace(" ", "-")
+    if not CITY_NAME_RE.fullmatch(args.city) or city_info is None:
+        parser.error(f"Unknown or invalid city {args.city!r}; add lowercase city name to ansible_events_lib.py")
+    pre_flight_checks()
+
+    event_timezone = city_info.timezone
+    city_title = city_info.city
+    city_slug = city_info.slug
     expected_group = f"{HOST_GROUP_PREFIX}-{city_slug}"
 
     logger.info("Validating organiser @%s...", args.organiser)
@@ -161,6 +161,14 @@ def main() -> None:
 
     if check_event_exists(target_slug):
         logger.error("Pretix event %r already exists. Aborting to prevent duplicates.", target_slug)
+        raise SystemExit(1)
+
+    if not check_event_exists(TEMPLATE_SLUG):
+        logger.error("Pretix template %r does not exist. Provision the environment first.", TEMPLATE_SLUG)
+        raise SystemExit(1)
+    team_name = f"{ORGANISER_TEAM_PREFIX} - {city_title}"
+    if not any(team.get("name") == team_name for team in pretix_list_all("teams")):
+        logger.error("Pretix team %r does not exist. Provision the environment first.", team_name)
         raise SystemExit(1)
 
     logger.info("Drafting initial forum post on behalf of @%s...", args.organiser)
@@ -296,22 +304,29 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
 
     logger.info("Cloning Pretix event from %r...", TEMPLATE_SLUG)
 
-    pretix_event = pretix_req(
-        "POST",
-        "events",
-        {
-            "name": {"en": event_name},
-            "slug": target_slug,
-            "date_from": args.date,
-            "date_to": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-            "timezone": event_timezone,
-            "clone_from": TEMPLATE_SLUG,
-            "meta_data": {"forum_topic_url": forum_url},
-        },
-    )
+    try:
+        pretix_event = pretix_req(
+            "POST",
+            "events",
+            {
+                "name": {"en": event_name},
+                "slug": target_slug,
+                "date_from": args.date,
+                "date_to": end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                "timezone": event_timezone,
+                "clone_from": TEMPLATE_SLUG,
+                "meta_data": {"forum_topic_url": forum_url},
+            },
+        )
+    except ApiError:
+        discourse_req("DELETE", f"posts/{post_id}.json")
+        raise
 
     if not pretix_event or not isinstance(pretix_event, dict):
         logger.error("Failed to create Pretix event.")
+        # Compensate for the first mutation so a failed event creation does
+        # not leave a public topic with a permanently broken RSVP link.
+        discourse_req("DELETE", f"posts/{post_id}.json")
         raise SystemExit(1)
 
     final_slug = pretix_event.get("slug")
@@ -446,4 +461,8 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ApiError as exc:
+        logger.error("Could not complete event provisioning: %s", exc)
+        raise SystemExit(1) from exc

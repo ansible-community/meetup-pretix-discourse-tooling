@@ -3,15 +3,18 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import re
 import sys
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("ansible_meetups")
 
-ApiResponse = dict[str, Any] | bool | None
+class ApiError(RuntimeError):
+    """An API request failed or returned an unexpected response."""
 
 # --- Secrets (from environment) ---
 PRETIX_URL = os.environ.get("PRETIX_URL", "http://localhost:8000")
@@ -37,8 +40,10 @@ EVENT_NAME_PREFIX = "Ansible Meetup"
 ORGANISER_TEAM_PREFIX = "Ansible Meetup Organisers"
 HOST_GROUP_PREFIX = "meetup-host"
 ATTENDEE_GROUP_PREFIX = "meetup-attendee"
-ADMIN_GROUP_NAME = "meetup-admin"
-MIGRATED_GROUP_NAME = "meetup-attendee-migrated"
+ADMIN_GROUP_NAME = "meetup-staff"
+MIGRATED_GROUP_NAME = "meetup-migrated-from-meetup-pro"
+CITY_NAME_RE = re.compile(r"^[a-z]+$")
+ORGANIZERS_GROUP_RE = re.compile(r"^meetup-organisers-([a-z]+)$")
 
 # --- Pretix template ---
 TEMPLATE_SLUG = "ansible-meetup-template-v6"
@@ -148,16 +153,19 @@ def pre_flight_checks(*, require_discourse: bool = True) -> None:
         missing.append("PRETIX_API_TOKEN")
     if require_discourse and not DISCOURSE_API_KEY:
         missing.append("DISCOURSE_API_KEY")
+    parsed = urlparse(PRETIX_URL)
+    if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        logger.error("PRETIX_URL must use HTTPS outside localhost/loopback")
+        missing.append("secure PRETIX_URL")
     if missing:
         logger.error("Missing required environment variables: %s", ", ".join(missing))
         sys.exit(1)
 
 
-def pretix_req(method: str, endpoint: str, payload: dict[str, Any] | None = None) -> ApiResponse:
+def pretix_req(method: str, endpoint: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Make an authenticated Pretix API request.
 
-    Returns the parsed JSON dict on success, True for empty-body success
-    (e.g. 204), or None on failure.
+    Returns parsed JSON on success. Raises ApiError on every failure.
     """
     url = f"{PRETIX_URL}/api/v1/organizers/{ORGANIZER_SLUG}/{endpoint}"
     if "?" in url:
@@ -176,18 +184,18 @@ def pretix_req(method: str, endpoint: str, payload: dict[str, Any] | None = None
     try:
         resp = httpx.request(method, url, json=payload, headers=headers, timeout=10)
     except httpx.HTTPError as exc:
-        logger.error("Pretix %s %s connection error: %s", method, endpoint, exc)
-        return None
+        raise ApiError(f"Pretix {method} {endpoint} connection error: {exc}") from exc
     if resp.status_code not in (200, 201, 204):
-        logger.error("Pretix %s %s failed: %s %s", method, endpoint, resp.status_code, resp.text[:200])
-        return None
+        raise ApiError(f"Pretix {method} {endpoint} failed: {resp.status_code} {resp.text[:200]}")
     if not resp.text:
-        return True
+        return {}
     try:
-        return resp.json()
+        data = resp.json()
     except ValueError:
-        logger.error("Pretix %s %s returned invalid JSON", method, endpoint)
-        return None
+        raise ApiError(f"Pretix {method} {endpoint} returned invalid JSON")
+    if not isinstance(data, dict):
+        raise ApiError(f"Pretix {method} {endpoint} returned non-object JSON")
+    return data
 
 
 def discourse_req(
@@ -196,15 +204,14 @@ def discourse_req(
     payload: dict[str, Any] | None = None,
     *,
     run_as: str | None = None,
-) -> ApiResponse:
+) -> dict[str, Any]:
     """Make an authenticated Discourse API request.
 
     Args:
         run_as: Override the API username for this request (e.g. to post
             on behalf of a specific user).
 
-    Returns the parsed JSON dict on success, True for empty-body success,
-    or None on failure.
+    Returns parsed JSON on success. Raises ApiError on every failure.
     """
     url = f"{DISCOURSE_URL.rstrip('/')}/{endpoint}"
     headers = {
@@ -215,26 +222,25 @@ def discourse_req(
     try:
         resp = httpx.request(method, url, json=payload, headers=headers, timeout=10)
     except httpx.HTTPError as exc:
-        logger.error("Discourse %s %s connection error: %s", method, endpoint, exc)
-        return None
+        raise ApiError(f"Discourse {method} {endpoint} connection error: {exc}") from exc
     if resp.status_code not in (200, 201, 204):
-        if "has already been taken" not in resp.text:
-            logger.error("Discourse %s %s failed: %s %s", method, endpoint, resp.status_code, resp.text[:200])
-        return None
+        raise ApiError(f"Discourse {method} {endpoint} failed: {resp.status_code} {resp.text[:200]}")
     if not resp.text:
-        return True
+        return {}
     try:
-        return resp.json()
+        data = resp.json()
     except ValueError:
-        logger.error("Discourse %s %s returned invalid JSON", method, endpoint)
-        return None
+        raise ApiError(f"Discourse {method} {endpoint} returned invalid JSON")
+    if not isinstance(data, dict):
+        raise ApiError(f"Discourse {method} {endpoint} returned non-object JSON")
+    return data
 
 
 def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
     """Fetch all results from a paginated Pretix list endpoint."""
     results: list[dict[str, Any]] = []
     resp = pretix_req("GET", endpoint)
-    while resp and isinstance(resp, dict):
+    while True:
         results.extend(resp.get("results", []))
         next_url = resp.get("next")
         if not next_url:
@@ -245,22 +251,29 @@ def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
                 headers={"Authorization": f"Token {PRETIX_API_TOKEN}", "Content-Type": "application/json"},
                 timeout=10,
             )
-            resp = page_resp.json() if page_resp.status_code == 200 else None
+            if page_resp.status_code != 200:
+                raise ApiError(f"Pretix pagination failed: {page_resp.status_code} {next_url}")
+            resp = page_resp.json()
+            if not isinstance(resp, dict):
+                raise ApiError(f"Pretix pagination returned non-object JSON: {next_url}")
         except (httpx.HTTPError, ValueError):
-            break
+            raise ApiError(f"Pretix pagination failed for {next_url}")
     return results
 
 
 def check_event_exists(slug: str) -> bool:
-    """Check whether a Pretix event exists by slug. Returns False on error."""
+    """Return True/False for a confirmed event/404; raise ApiError otherwise."""
     url = f"{PRETIX_URL}/api/v1/organizers/{ORGANIZER_SLUG}/events/{slug}/"
     headers = {"Authorization": f"Token {PRETIX_API_TOKEN}"}
     try:
         resp = httpx.get(url, headers=headers, timeout=10)
     except httpx.HTTPError as exc:
-        logger.error("Pretix check_event_exists %s connection error: %s", slug, exc)
+        raise ApiError(f"Pretix check_event_exists {slug} connection error: {exc}") from exc
+    if resp.status_code == 404:
         return False
-    return resp.status_code == 200
+    if resp.status_code == 200:
+        return True
+    raise ApiError(f"Pretix check_event_exists {slug} failed: {resp.status_code} {resp.text[:200]}")
 
 
 def strip_discourse_block(markdown: str) -> str:
