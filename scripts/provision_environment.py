@@ -72,7 +72,12 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
                     f"{city_name} Events subcategory and scoped access to the "
                     "Pretix event dashboard (attendee list + check-in)."
                 ),
-                "visibility_level": 2,
+                "visibility_level": 4,
+                "members_visibility_level": 3,
+                "public_admission": False,
+                "allow_membership_requests": False,
+                "automatic_membership_email_domains": "",
+                "owner_usernames": "",
             })
     ensure_group(attendee_group, {
                 "name": attendee_group,
@@ -83,6 +88,7 @@ def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, i
                     "Membership is hidden (visible to forum admins only) to protect location privacy."
                 ),
                 "visibility_level": 3,
+                "members_visibility_level": 3,
             })
     return host_group, attendee_group, host_group_id
 
@@ -121,8 +127,10 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
         discourse_req("POST", "categories.json", desired)
 
 
-def reconcile_organiser_category_moderators(city_moderators: dict[int, int]) -> None:
-    """Keep each registered organiser group as moderator only on its own city category."""
+def reconcile_organiser_category_access(
+    city_access: dict[int, tuple[str, int]],
+) -> None:
+    """Keep each organiser group on its own city category only."""
     category_list = discourse_req("GET", "categories.json").get("category_list", {})
     roots = category_list.get("categories") if isinstance(category_list, dict) else None
     if not isinstance(roots, list):
@@ -145,12 +153,14 @@ def reconcile_organiser_category_moderators(city_moderators: dict[int, int]) -> 
     group_rows = discourse_req("GET", "admin/groups.json").get("groups")
     if not isinstance(group_rows, list):
         raise ApiError("Discourse groups response is missing groups")
-    managed_group_ids = set(city_moderators.values())
+    managed_group_ids = {group_id for _, group_id in city_access.values()}
+    managed_group_names: set[str] = set()
     for group in group_rows:
         if not isinstance(group, dict):
             raise ApiError("Discourse groups response contains an invalid group")
         group_name = group.get("name")
         if isinstance(group_name, str) and ORGANIZERS_GROUP_RE.fullmatch(group_name):
+            managed_group_names.add(group_name)
             group_id = group.get("id")
             if not isinstance(group_id, int):
                 raise ApiError("Discourse organiser group response contains an invalid ID")
@@ -167,8 +177,9 @@ def reconcile_organiser_category_moderators(city_moderators: dict[int, int]) -> 
             raise ApiError(f"Discourse category {category_id} returned invalid moderator group IDs")
 
         desired_ids = [group_id for group_id in current_ids if group_id not in managed_group_ids]
-        city_group_id = city_moderators.get(category_id)
-        if city_group_id is not None:
+        city_access_for_category = city_access.get(category_id)
+        if city_access_for_category is not None:
+            _, city_group_id = city_access_for_category
             desired_ids.append(city_group_id)
         desired_ids = sorted(set(desired_ids))
         if desired_ids != sorted(set(current_ids)):
@@ -176,6 +187,22 @@ def reconcile_organiser_category_moderators(city_moderators: dict[int, int]) -> 
                 "PUT",
                 f"categories/{category_id}.json",
                 {"moderating_group_ids": desired_ids},
+            )
+
+        permissions = detail.get("permissions") if isinstance(detail, dict) else None
+        if not isinstance(permissions, dict):
+            raise ApiError(f"Discourse category {category_id} returned invalid permissions")
+        desired_permissions = {
+            name: level for name, level in permissions.items() if name not in managed_group_names
+        }
+        if city_access_for_category is not None:
+            city_group_name, _ = city_access_for_category
+            desired_permissions[city_group_name] = 1
+        if desired_permissions != permissions:
+            discourse_req(
+                "PUT",
+                f"categories/{category_id}.json",
+                {"permissions": desired_permissions},
             )
 
 
@@ -269,14 +296,14 @@ def main() -> None:
     else:
         discourse_req("POST", "admin/groups.json", migrated_payload)
 
-    city_moderators = {}
+    city_access = {}
     for city in CITIES:
         host_group, att_group, host_group_id = ensure_discourse_groups(city.slug, city.city)
         ensure_discourse_category(city.city, host_group, att_group, host_group_id)
         city_category_id = discourse_city_category_id(city.city)
-        city_moderators[city_category_id] = host_group_id
+        city_access[city_category_id] = (host_group, host_group_id)
 
-    reconcile_organiser_category_moderators(city_moderators)
+    reconcile_organiser_category_access(city_access)
 
     ensure_user_field_options()
 
