@@ -87,28 +87,18 @@ class TestCityInfoFrozen:
 
 
 class TestGetCity:
-    def test_exact_match(self) -> None:
-        result = get_city("London")
-        assert result is not None
-        assert result.city == "London"
-
-    def test_case_insensitive(self) -> None:
+    def test_lowercase_slug_match(self) -> None:
         result = get_city("london")
         assert result is not None
         assert result.city == "London"
 
-    def test_upper_case(self) -> None:
-        result = get_city("LONDON")
-        assert result is not None
-        assert result.city == "London"
-
-    def test_mixed_case(self) -> None:
-        result = get_city("lOnDoN")
-        assert result is not None
-        assert result.city == "London"
+    def test_rejects_non_lowercase_input(self) -> None:
+        assert get_city("London") is None
+        assert get_city("LONDON") is None
+        assert get_city("lOnDoN") is None
 
     def test_not_found(self) -> None:
-        assert get_city("Atlantis") is None
+        assert get_city("atlantis") is None
 
     def test_empty_string(self) -> None:
         assert get_city("") is None
@@ -117,17 +107,17 @@ class TestGetCity:
         assert get_city("Lond") is None
 
     def test_leading_trailing_spaces_no_match(self) -> None:
-        assert get_city(" London ") is None
+        assert get_city(" london ") is None
 
     def test_returns_full_city_info(self) -> None:
-        result = get_city("Barcelona")
+        result = get_city("barcelona")
         assert result is not None
         assert result.region == "Europe"
         assert result.country == "Spain"
         assert result.timezone == "Europe/Madrid"
 
     def test_faketown(self) -> None:
-        result = get_city("FakeTown")
+        result = get_city("faketown")
         assert result is not None
         assert result.timezone == "Europe/London"
 

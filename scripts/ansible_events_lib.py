@@ -116,11 +116,10 @@ CITIES: tuple[CityInfo, ...] = (
 
 def get_city(name: str) -> CityInfo | None:
     """Look up a registered city slug. Returns None for malformed or unknown names."""
-    slug = name.lower()
-    if not CITY_NAME_RE.fullmatch(slug):
+    if not CITY_NAME_RE.fullmatch(name):
         return None
     for c in CITIES:
-        if c.slug == slug:
+        if c.slug == name:
             return c
     return None
 
