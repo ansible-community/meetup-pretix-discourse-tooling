@@ -559,7 +559,7 @@ Set the required environment variables (see [Prerequisites](#prerequisites)).
 | `ORGANIZER_SLUG` | `ansible-meetups` | Pretix organizer |
 | `TEMPLATE_SLUG` | `ansible-meetup-template-v6` | Master template event |
 | `ORGANISERS_GROUP_PREFIX` | `meetup-organisers` | Discourse group prefix for organisers |
-| `ADMIN_GROUP_NAME` | `meetup-staff` | Discourse group for Pretix staff access |
+| `STAFF_GROUP_NAME` | `meetup-staff` | Discourse group for Pretix staff access |
 | `ORGANISER_TEAM_PREFIX` | `Ansible Meetup Organisers` | Pretix team name prefix |
 
 ### Event slug format

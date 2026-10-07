@@ -8,10 +8,10 @@ as new cities are added to the CITIES registry.
 from __future__ import annotations
 
 from ansible_events_lib import (
-    ADMIN_GROUP_NAME,
     ANSIBLE_PRIMARY_COLOR,
     ApiError,
     ATTENDEE_GROUP_PREFIX,
+    STAFF_GROUP_NAME,
     CITIES,
     CODE_OF_CONDUCT_URL,
     CONTACT_EMAIL,
@@ -144,11 +144,11 @@ def main() -> None:
 
     logger.info("--- 1. DISCOURSE PROVISIONING ---")
 
-    logger.info("Ensuring group %s...", ADMIN_GROUP_NAME)
+    logger.info("Ensuring group %s...", STAFF_GROUP_NAME)
     groups = discourse_req("GET", "admin/groups.json").get("groups", [])
-    existing_admin = next((g for g in groups if g.get("name") == ADMIN_GROUP_NAME), None)
+    existing_admin = next((g for g in groups if g.get("name") == STAFF_GROUP_NAME), None)
     admin_payload = {"group": {
-                "name": ADMIN_GROUP_NAME,
+                "name": STAFF_GROUP_NAME,
                 "full_name": "Ansible Meetup Admins",
                 "bio_raw": (
                     "Ansible Community Team members with global admin access to the meetup platform.\n\n"
