@@ -11,7 +11,6 @@ from ansible_events_lib import (
     DEFAULT_ITEM_NAME,
     DEFAULT_ITEM_PRICE,
     DEFAULT_QUOTA_NAME,
-    ApiError,
     DISCOURSE_EVENTS_CATEGORY_ID,
     DISCOURSE_URL,
     EVENT_NAME_PREFIX,
@@ -31,6 +30,7 @@ from ansible_events_lib import (
     pre_flight_checks,
     pretix_list_all,
     pretix_req,
+    run_cli,
     strip_discourse_block,
 )
 
@@ -361,17 +361,13 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
         flags=re.DOTALL,
     )
 
-    update_resp = discourse_req(
+    discourse_req(
         "PUT", f"posts/{post_id}.json", {"post": {"raw": final_markdown}}, run_as=args.organiser
     )
-    if not update_resp:
-        logger.warning("Failed to update Discourse post with Pretix URL")
 
     logger.info("Syncing description to Pretix frontpage...")
     pretix_content = strip_discourse_block(final_markdown)
-    settings_resp = pretix_req("PATCH", f"events/{final_slug}/settings", {"frontpage_text": {"en": pretix_content}})
-    if not settings_resp:
-        logger.warning("Failed to sync description to Pretix frontpage")
+    pretix_req("PATCH", f"events/{final_slug}/settings", {"frontpage_text": {"en": pretix_content}})
 
     logger.info("Adjusting venue capacity to %d...", args.capacity)
     quotas = pretix_req("GET", f"events/{final_slug}/quotas")
@@ -401,7 +397,7 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
         else:
             item_id = items[0]["id"]
 
-        quota_resp = pretix_req(
+        pretix_req(
             "POST",
             f"events/{final_slug}/quotas",
             {
@@ -410,8 +406,6 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
                 "items": [item_id],
             },
         )
-        if not quota_resp:
-            logger.warning("Failed to create quota for event")
 
     logger.info("Setting wallet pass back field to forum URL...")
     items_for_pass = pretix_req("GET", f"events/{final_slug}/items")
@@ -426,9 +420,7 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
             )
 
     logger.info("Publishing Pretix event...")
-    publish_resp = pretix_req("PATCH", f"events/{final_slug}", {"live": True})
-    if not publish_resp:
-        logger.warning("Failed to publish Pretix event")
+    pretix_req("PATCH", f"events/{final_slug}", {"live": True})
 
     logger.info("Assigning event to local Organisers Team...")
     team_name = f"{ORGANISER_TEAM_PREFIX} - {city_title}"
@@ -443,7 +435,7 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
             if final_slug not in limit_events:
                 limit_events.append(final_slug)
 
-            team_update = pretix_req(
+            pretix_req(
                 "PATCH",
                 f"teams/{t['id']}",
                 {
@@ -452,8 +444,6 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
                     "limit_event_permissions": ORGANISER_PERMISSIONS,
                 },
             )
-            if not team_update:
-                logger.warning("Failed to assign event to team %r", team_name)
             break
 
     logger.info("--- EVENT SUCCESSFULLY PROVISIONED ---")
@@ -461,8 +451,4 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except ApiError as exc:
-        logger.error("Could not complete event provisioning: %s", exc)
-        raise SystemExit(1) from exc
+    run_cli(main)

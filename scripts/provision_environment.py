@@ -32,6 +32,7 @@ from ansible_events_lib import (
     pre_flight_checks,
     pretix_list_all,
     pretix_req,
+    run_cli,
 )
 
 
@@ -178,7 +179,7 @@ def main() -> None:
     ensure_user_field_options()
 
     logger.info("--- 2. PRETIX PROVISIONING ---")
-    org_resp = pretix_req(
+    pretix_req(
         "PATCH",
         "",
         {
@@ -209,7 +210,7 @@ def main() -> None:
     if props_resp:
         props = props_resp.get("results", [])
         if not any(p["name"] == "forum_topic_url" for p in props):
-            meta_resp = pretix_req(
+            pretix_req(
                 "POST",
                 "event_meta_properties",
                 {
@@ -245,7 +246,7 @@ def main() -> None:
 
     if event_ready:
         logger.info("Enforcing strict settings on template...")
-        settings_resp = pretix_req(
+        pretix_req(
             "PATCH",
             f"events/{TEMPLATE_SLUG}/settings",
             {
@@ -280,7 +281,7 @@ def main() -> None:
                     },
                 )
                 if item and isinstance(item, dict):
-                    quota_resp = pretix_req(
+                    pretix_req(
                         "POST",
                         f"events/{TEMPLATE_SLUG}/quotas",
                         {
@@ -303,9 +304,9 @@ def main() -> None:
         if city.team_name in existing_teams:
             team_resp = pretix_req("GET", f"teams/{existing_teams[city.team_name]['id']}")
             desired_team["limit_events"] = team_resp.get("limit_events", [])
-            team_resp = pretix_req("PATCH", f"teams/{existing_teams[city.team_name]['id']}", desired_team)
+            pretix_req("PATCH", f"teams/{existing_teams[city.team_name]['id']}", desired_team)
         else:
-            team_resp = pretix_req(
+            pretix_req(
                 "POST",
                 "teams",
                 desired_team,
@@ -315,8 +316,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except ApiError as exc:
-        logger.error("Could not reconcile environment: %s", exc)
-        raise SystemExit(1) from exc
+    run_cli(main)

@@ -10,6 +10,7 @@ from ansible_events_lib import (
     logger,
     pre_flight_checks,
     pretix_req,
+    run_cli,
     strip_discourse_block,
 )
 
@@ -75,16 +76,11 @@ def main() -> None:
     pretix_content = strip_discourse_block(raw_markdown)
 
     logger.info(f"Syncing updates to Pretix event '{args.slug}'...")
-    name_resp = pretix_req("PATCH", f"events/{args.slug}", {"name": {"en": title}})
-    if not name_resp:
-        logger.warning("Failed to update event name in Pretix")
-
-    settings_resp = pretix_req("PATCH", f"events/{args.slug}/settings", {"frontpage_text": {"en": pretix_content}})
-    if not settings_resp:
-        logger.warning("Failed to update event frontpage in Pretix")
+    pretix_req("PATCH", f"events/{args.slug}", {"name": {"en": title}})
+    pretix_req("PATCH", f"events/{args.slug}/settings", {"frontpage_text": {"en": pretix_content}})
 
     logger.info("Sync complete.")
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)

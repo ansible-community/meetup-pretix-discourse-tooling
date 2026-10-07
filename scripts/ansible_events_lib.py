@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import httpx
@@ -15,6 +15,15 @@ logger = logging.getLogger("ansible_meetups")
 
 class ApiError(RuntimeError):
     """An API request failed or returned an unexpected response."""
+
+
+def run_cli(action: Callable[[], None]) -> None:
+    """Run a CLI action and translate API failures into one friendly error."""
+    try:
+        action()
+    except ApiError as exc:
+        logger.error("API request failed: %s", exc)
+        raise SystemExit(1) from exc
 
 # --- Secrets (from environment) ---
 PRETIX_URL = os.environ.get("PRETIX_URL", "http://localhost:8000")
