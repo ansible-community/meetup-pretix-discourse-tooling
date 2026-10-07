@@ -393,6 +393,48 @@ class MockResponse:
 
 
 class TestProvisioningPermissions:
+    def test_template_settings_patch_only_differences(self, monkeypatch):
+        import provision_environment
+
+        settings = {"name_scheme": "full", "attendee_names_asked": False}
+        requests = []
+
+        def request(method, endpoint, payload=None):
+            requests.append((method, endpoint, payload))
+            if method == "PATCH":
+                settings.update(payload)
+            return settings.copy()
+
+        monkeypatch.setattr(provision_environment, "pretix_req", request)
+        provision_environment.reconcile_pretix_event_settings(
+            "template",
+            {"name_scheme": "full", "attendee_names_asked": True},
+        )
+
+        assert requests == [
+            ("GET", "events/template/settings", None),
+            ("PATCH", "events/template/settings", {"attendee_names_asked": True}),
+            ("GET", "events/template/settings", None),
+        ]
+
+    def test_template_settings_noop_does_not_patch(self, monkeypatch):
+        import provision_environment
+
+        requests = []
+        settings = {"name_scheme": "full"}
+
+        def request(method, endpoint, payload=None):
+            requests.append((method, endpoint, payload))
+            return settings.copy()
+
+        monkeypatch.setattr(provision_environment, "pretix_req", request)
+        provision_environment.reconcile_pretix_event_settings("template", {"name_scheme": "full"})
+
+        assert requests == [
+            ("GET", "events/template/settings", None),
+            ("GET", "events/template/settings", None),
+        ]
+
     def test_organiser_group_tracks_only_its_city_category(self, monkeypatch):
         import provision_environment
 

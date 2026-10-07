@@ -114,7 +114,9 @@ def log_resource_status(
     """Log whether each desired field was already correct or had to change."""
     statuses = {
         FIELD_LABELS.get(field, field.replace("_", " ")): (
-            "OK" if before is None or same_configuration_value(field, before.get(field), value) else "Changed"
+            "OK"
+            if before is None or (field in before and same_configuration_value(field, before[field], value))
+            else "Changed"
         )
         for field, value in desired.items()
     }
@@ -127,6 +129,25 @@ def log_resource_status(
         state = "Already configured"
     details = ", ".join(f"{field}: {status}" for field, status in statuses.items())
     logger.info("%s: %s | %s", resource, state, details)
+
+
+def reconcile_pretix_event_settings(event_slug: str, desired: Mapping[str, Any]) -> None:
+    """Patch only event settings that differ, then verify Pretix accepted them."""
+    endpoint = f"events/{event_slug}/settings"
+    before = pretix_req("GET", endpoint)
+    changes = {
+        field: value
+        for field, value in desired.items()
+        if field not in before or not same_configuration_value(field, before[field], value)
+    }
+    if changes:
+        pretix_req("PATCH", endpoint, changes)
+
+    after = pretix_req("GET", endpoint)
+    for field, value in desired.items():
+        if field not in after or not same_configuration_value(field, after[field], value):
+            raise ApiError(f"Pretix event {event_slug!r} did not reconcile setting {field!r}")
+    log_resource_status(f"Template {event_slug} settings", desired, before)
 
 
 def ensure_discourse_groups(city_slug: str, city_name: str) -> tuple[str, str, int]:
@@ -634,9 +655,8 @@ def main() -> None:
             f"events/{TEMPLATE_SLUG}",
             {"live": False, "is_template": True},
         )
-        pretix_req(
-            "PATCH",
-            f"events/{TEMPLATE_SLUG}/settings",
+        reconcile_pretix_event_settings(
+            TEMPLATE_SLUG,
             {
                 "max_items_per_order": 1,
                 "invoice_address_asked": False,
