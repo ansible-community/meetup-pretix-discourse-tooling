@@ -499,7 +499,7 @@ def main() -> None:
     previous_staff_team = staff_teams[0] if staff_teams else None
     if staff_teams:
         if any(
-            not same_configuration_value(key, previous_staff_team.get(key), value)
+            not same_configuration_value(key, staff_teams[0].get(key), value)
             for key, value in staff_team_payload.items()
         ):
             pretix_req("PATCH", f"teams/{staff_teams[0]['id']}", staff_team_payload)
@@ -559,7 +559,7 @@ def main() -> None:
             if not isinstance(team_id, int):
                 raise ApiError(f"Pretix team {city.team_name!r} has an invalid ID")
             if any(
-                not same_configuration_value(field, previous_team.get(field), value)
+                not same_configuration_value(field, existing[0].get(field), value)
                 for field, value in desired_team.items()
             ):
                 pretix_req("PATCH", f"teams/{team_id}", desired_team)
