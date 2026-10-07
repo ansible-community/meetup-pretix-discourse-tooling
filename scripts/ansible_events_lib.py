@@ -160,9 +160,9 @@ def discourse_user_in_group(username: str, group_name: str) -> bool:
     return any(g.get("name") == group_name for g in groups)
 
 
-def discourse_city_category_id(city_name: str) -> int:
-    """Resolve the registered city's Events subcategory, failing on missing or ambiguous state."""
-    response = discourse_req("GET", "categories.json")
+def discourse_categories() -> list[dict[str, Any]]:
+    """Fetch all visible Discourse categories, including nested subcategories."""
+    response = discourse_req("GET", "categories.json?include_subcategories=true")
     category_list = response.get("category_list")
     if not isinstance(category_list, dict):
         raise ApiError("Discourse categories response is missing category_list")
@@ -184,6 +184,12 @@ def discourse_city_category_id(city_name: str) -> int:
                 flatten(children)
 
     flatten(roots)
+    return categories
+
+
+def discourse_city_category_id(city_name: str) -> int:
+    """Resolve the registered city's Events subcategory, failing on missing or ambiguous state."""
+    categories = discourse_categories()
     matches = [
         category
         for category in categories

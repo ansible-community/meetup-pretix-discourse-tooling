@@ -284,6 +284,32 @@ class TestPretixApiContract:
         assert request.call_args.kwargs["headers"]["Api-Key"] == "test-api-key"
         assert request.call_args.kwargs["headers"]["Api-Username"] == "organiser"
 
+    def test_city_category_lookup_requests_nested_categories(self, monkeypatch):
+        import ansible_events_lib
+
+        requests = []
+
+        def request(method, endpoint):
+            requests.append((method, endpoint))
+            return {
+                "category_list": {
+                    "categories": [
+                        {
+                            "id": 8,
+                            "name": "Events",
+                            "subcategory_list": [
+                                {"id": 11, "name": "London", "parent_category_id": 8},
+                            ],
+                        }
+                    ]
+                }
+            }
+
+        monkeypatch.setattr(ansible_events_lib, "discourse_req", request)
+
+        assert ansible_events_lib.discourse_city_category_id("London") == 11
+        assert requests == [("GET", "categories.json?include_subcategories=true")]
+
     def test_category_lookup_requires_unique_events_subcategory(self, monkeypatch):
         import ansible_events_lib
 
@@ -550,6 +576,7 @@ class TestProvisioningPermissions:
             raise AssertionError(f"Unexpected Discourse request: {method} {endpoint}")
 
         monkeypatch.setattr(provision_environment, "discourse_req", request)
+        monkeypatch.setattr(provision_environment, "discourse_categories", lambda: categories)
         monkeypatch.setattr(
             provision_environment,
             "list_discourse_groups",

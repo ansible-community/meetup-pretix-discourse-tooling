@@ -34,6 +34,7 @@ from ansible_events_lib import (
     USER_CITY_FIELD_ID,
     check_event_exists,
     discourse_req,
+    discourse_categories,
     discourse_city_category_id,
     logger,
     pre_flight_checks,
@@ -294,16 +295,7 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
         "permissions": {"everyone": 1, host_group: 1, attendee_group: 1},
         "moderating_group_ids": [host_group_id],
     }
-    categories = discourse_req("GET", "categories.json").get("category_list", {}).get("categories", [])
-
-    def flatten(rows: list[dict]) -> list[dict]:
-        result = []
-        for row in rows:
-            result.append(row)
-            result.extend(flatten(row.get("subcategory_list", row.get("subcategories", []))))
-        return result
-
-    categories = flatten(categories)
+    categories = discourse_categories()
     matching_categories = [
         category
         for category in categories
@@ -339,25 +331,7 @@ def reconcile_organiser_category_access(
     city_access: dict[int, tuple[str, int]],
 ) -> None:
     """Keep each organiser group on its own city category only."""
-    category_list = discourse_req("GET", "categories.json").get("category_list", {})
-    roots = category_list.get("categories") if isinstance(category_list, dict) else None
-    if not isinstance(roots, list):
-        raise ApiError("Discourse categories response is missing categories")
-
-    categories: list[dict] = []
-
-    def flatten(rows: list) -> None:
-        for row in rows:
-            if not isinstance(row, dict):
-                raise ApiError("Discourse categories response contains an invalid category")
-            categories.append(row)
-            children = row.get("subcategory_list", row.get("subcategories", []))
-            if children is not None:
-                if not isinstance(children, list):
-                    raise ApiError("Discourse categories response contains invalid subcategories")
-                flatten(children)
-
-    flatten(roots)
+    categories = discourse_categories()
     group_rows = list_discourse_groups()
     managed_group_ids = {group_id for _, group_id in city_access.values()}
     for group in group_rows:
