@@ -375,9 +375,7 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
         flags=re.DOTALL,
     )
 
-    discourse_req(
-        "PUT", f"posts/{post_id}.json", {"post": {"raw": final_markdown}}, run_as=args.organiser
-    )
+    discourse_req("PUT", f"posts/{post_id}.json", {"post": {"raw": final_markdown}}, run_as=args.organiser)
 
     logger.info("Syncing description to Pretix frontpage...")
     pretix_content = strip_discourse_block(final_markdown)

@@ -15,6 +15,7 @@ import httpx
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("ansible_meetups")
 
+
 class ApiError(RuntimeError):
     """An API request failed or returned an unexpected response."""
 
@@ -26,6 +27,7 @@ def run_cli(action: Callable[[], None]) -> None:
     except ApiError as exc:
         logger.error("API request failed: %s", exc)
         raise SystemExit(1) from exc
+
 
 # --- Secrets (from environment) ---
 PRETIX_URL = os.environ.get("PRETIX_URL", "http://localhost:8000")
@@ -201,9 +203,7 @@ def discourse_city_category_id(city_name: str) -> int:
         and category.get("parent_category_id") == DISCOURSE_PARENT_CATEGORY_ID
     ]
     if len(matches) != 1 or not isinstance(matches[0].get("id"), int):
-        raise ApiError(
-            f"Expected exactly one Events subcategory for {city_name!r}; found {len(matches)}"
-        )
+        raise ApiError(f"Expected exactly one Events subcategory for {city_name!r}; found {len(matches)}")
     return matches[0]["id"]
 
 
@@ -315,9 +315,7 @@ def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
         f"{PRETIX_URL.rstrip('/')}/",
         f"api/v1/organizers/{ORGANIZER_SLUG}/",
     )
-    expected_path_prefix = (
-        f"{configured_url.path.rstrip('/')}/api/v1/organizers/{ORGANIZER_SLUG}/"
-    )
+    expected_path_prefix = f"{configured_url.path.rstrip('/')}/api/v1/organizers/{ORGANIZER_SLUG}/"
 
     def checked_next_url(next_url: str) -> str:
         resolved = urlparse(urljoin(api_base, next_url))

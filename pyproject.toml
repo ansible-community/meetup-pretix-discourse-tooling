@@ -33,6 +33,7 @@ select = ["E", "F", "B", "S", "T20", "DTZ", "UP", "SIM", "G"]
 
 [tool.ruff.lint.per-file-ignores]
 "main.py" = ["T201"]
+"tests/**/*.py" = ["S101"]
 "scripts/create_event.py" = ["T201", "E501"]
 "scripts/discourse-connect-mvp.py" = ["T201", "S105", "S310", "E501"]
 "scripts/meetup_pro_lib.py" = ["S105"]

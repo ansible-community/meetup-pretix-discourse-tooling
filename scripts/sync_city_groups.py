@@ -55,13 +55,20 @@ def _get(path: str, **params: Any) -> Any:
 
 def _put(path: str, payload: dict[str, Any]) -> None:
     time.sleep(API_PAUSE)
-    resp = httpx.put(f"{DISCOURSE_URL}/{path}", headers=_headers(), json=payload, timeout=API_REQUEST_TIMEOUT_SECONDS)  # type: ignore[arg-type]
+    resp = httpx.put(
+        f"{DISCOURSE_URL}/{path}",
+        headers=_headers(),
+        json=payload,
+        timeout=API_REQUEST_TIMEOUT_SECONDS,
+    )  # type: ignore[arg-type]
     resp.raise_for_status()
 
 
 def _delete(path: str, payload: dict[str, Any]) -> None:
     time.sleep(API_PAUSE)
-    resp = httpx.request("DELETE", f"{DISCOURSE_URL}/{path}", headers=_headers(), json=payload, timeout=API_REQUEST_TIMEOUT_SECONDS)  # type: ignore[arg-type]
+    resp = httpx.request(
+        "DELETE", f"{DISCOURSE_URL}/{path}", headers=_headers(), json=payload, timeout=API_REQUEST_TIMEOUT_SECONDS
+    )  # type: ignore[arg-type]
     resp.raise_for_status()
 
 
