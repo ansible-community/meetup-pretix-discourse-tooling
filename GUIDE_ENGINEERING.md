@@ -322,15 +322,15 @@ Edit `scripts/ansible_events_lib.py` and add a new `CityInfo` entry:
 
 ```python
 CITIES: tuple[CityInfo, ...] = (
-    CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London"),
-    CityInfo(region="Europe", country="Spain", city="Barcelona", timezone="Europe/Madrid"),
-    CityInfo(region="Europe", country="UK", city="FakeTown", timezone="Europe/London"),
+    CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London"),
+    CityInfo(region="Europe", country="Spain", slug="barcelona", city="Barcelona", timezone="Europe/Madrid"),
+    CityInfo(region="Europe", country="UK", slug="faketown", city="FakeTown", timezone="Europe/London"),
     # Add new city:
-    CityInfo(region="APAC", country="Japan", city="Tokyo", timezone="Asia/Tokyo"),
+    CityInfo(region="APAC", country="Japan", slug="tokyo", city="Tokyo", timezone="Asia/Tokyo"),
 )
 ```
 
-The `city` field is the display name; the CLI uses its lowercase slug (`tokyo`). Add the city to `CITIES` and deploy that code before running `create_event.py`. Unknown or unregistered city slugs are rejected; no fallback timezone is used.
+The `slug` is an explicit lowercase ASCII identifier containing letters only; `city` is the canonical display name used in forum labels and Pretix team names. Add both values to `CITIES` and deploy that code before running `create_event.py`. Unknown or unregistered city slugs are rejected; no display name is inferred from the slug.
 
 Use [IANA timezone identifiers](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for the `timezone` field.
 

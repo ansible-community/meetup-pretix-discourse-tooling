@@ -24,64 +24,40 @@ from ansible_events_lib import (
 
 class TestCityInfoSlug:
     def test_lowercase(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London")
         assert city.slug == "london"
 
-    def test_spaces_to_hyphens(self) -> None:
-        city = CityInfo(region="Americas", country="US", city="New York", timezone="America/New_York")
-        assert city.slug == "new-york"
-
-    def test_multiple_spaces(self) -> None:
-        city = CityInfo(region="Americas", country="US", city="San  Francisco", timezone="America/Los_Angeles")
-        assert city.slug == "san--francisco"
-
-    def test_already_lowercase(self) -> None:
-        city = CityInfo(region="Europe", country="DE", city="berlin", timezone="Europe/Berlin")
-        assert city.slug == "berlin"
-
     def test_mixed_case(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="FakeTown", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="faketown", city="FakeTown", timezone="Europe/London")
         assert city.slug == "faketown"
 
-    def test_empty_string(self) -> None:
-        city = CityInfo(region="", country="", city="", timezone="")
-        assert city.slug == ""
-
-    def test_leading_trailing_spaces(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city=" London ", timezone="Europe/London")
-        assert city.slug == "-london-"
-
-    def test_tab_characters(self) -> None:
-        city = CityInfo(region="Americas", country="US", city="New\tYork", timezone="America/New_York")
-        assert city.slug == "new\tyork"
-
-    def test_unicode(self) -> None:
-        city = CityInfo(region="Europe", country="DE", city="München", timezone="Europe/Berlin")
-        assert city.slug == "münchen"
+    def test_invalid_slug_is_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            CityInfo(region="Europe", country="UK", slug="new-york", city="New York", timezone="Europe/London")
 
 
 class TestCityInfoFieldValue:
     def test_standard_format(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London")
         assert city.field_value == "Europe:UK:London"
 
     def test_multi_word_values(self) -> None:
-        city = CityInfo(region="Americas", country="US", city="New York", timezone="America/New_York")
+        city = CityInfo(region="Americas", country="US", slug="newyork", city="New York", timezone="America/New_York")
         assert city.field_value == "Americas:US:New York"
 
     def test_preserves_original_case(self) -> None:
-        city = CityInfo(region="EMEA", country="India", city="Pune", timezone="Asia/Kolkata")
+        city = CityInfo(region="EMEA", country="India", slug="pune", city="Pune", timezone="Asia/Kolkata")
         assert city.field_value == "EMEA:India:Pune"
 
 
 class TestCityInfoFrozen:
     def test_cannot_modify_city(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London")
         with pytest.raises(AttributeError):
             city.city = "Manchester"  # type: ignore[misc]
 
     def test_cannot_modify_region(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London")
         with pytest.raises(AttributeError):
             city.region = "Americas"  # type: ignore[misc]
 
@@ -238,27 +214,27 @@ class TestPreFlightChecks:
 
 class TestCityInfoDerivedProperties:
     def test_event_name(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London")
         assert city.event_name == f"{EVENT_NAME_PREFIX} London"
 
     def test_team_name(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London")
         assert city.team_name == f"{ORGANISER_TEAM_PREFIX} - London"
 
     def test_organiser_group(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London")
         assert city.organiser_group == "meetup-organisers-london"
 
     def test_attendee_group(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London")
         assert city.attendee_group == "meetup-attendee-london"
 
     def test_organiser_group_with_spaces(self) -> None:
-        city = CityInfo(region="Americas", country="US", city="New York", timezone="America/New_York")
+        city = CityInfo(region="Americas", country="US", slug="newyork", city="New York", timezone="America/New_York")
         assert city.organiser_group == "meetup-organisers-new-york"
 
     def test_team_name_preserves_case(self) -> None:
-        city = CityInfo(region="Europe", country="UK", city="FakeTown", timezone="Europe/London")
+        city = CityInfo(region="Europe", country="UK", slug="faketown", city="FakeTown", timezone="Europe/London")
         assert city.team_name == f"{ORGANISER_TEAM_PREFIX} - FakeTown"
 
 

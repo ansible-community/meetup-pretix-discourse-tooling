@@ -151,7 +151,7 @@ def main() -> None:
     start_str = dt.strftime("%Y-%m-%dT%H:%M:%S")
     end_str = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
     event_name = f"{EVENT_NAME_PREFIX} {city_title}"
-    target_slug = f"{args.city.lower().replace(' ', '-')}-{dt.strftime('%b').lower()}-{dt.strftime('%Y')}"
+    target_slug = f"{city_info.slug}-{dt.strftime('%b').lower()}-{dt.strftime('%Y')}"
 
     if args.venue and args.address:
         venue_display = f"{args.venue}, {args.address}"

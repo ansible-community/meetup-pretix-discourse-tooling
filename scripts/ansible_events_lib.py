@@ -78,12 +78,15 @@ class CityInfo:
 
     region: str
     country: str
+    slug: str
     city: str
     timezone: str
 
-    @property
-    def slug(self) -> str:
-        return self.city.lower().replace(" ", "-")
+    def __post_init__(self) -> None:
+        if not CITY_NAME_RE.fullmatch(self.slug):
+            raise ValueError(f"City slug must contain lowercase ASCII letters only: {self.slug!r}")
+        if not self.city.strip():
+            raise ValueError("City display name must not be empty")
 
     @property
     def field_value(self) -> str:
@@ -108,10 +111,13 @@ class CityInfo:
 
 
 CITIES: tuple[CityInfo, ...] = (
-    CityInfo(region="Europe", country="UK", city="London", timezone="Europe/London"),
-    CityInfo(region="Europe", country="Spain", city="Barcelona", timezone="Europe/Madrid"),
-    CityInfo(region="Europe", country="UK", city="FakeTown", timezone="Europe/London"),
+    CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London"),
+    CityInfo(region="Europe", country="Spain", slug="barcelona", city="Barcelona", timezone="Europe/Madrid"),
+    CityInfo(region="Europe", country="UK", slug="faketown", city="FakeTown", timezone="Europe/London"),
 )
+
+if len({city.slug for city in CITIES}) != len(CITIES):
+    raise ValueError("City slugs in CITIES must be unique")
 
 
 def get_city(name: str) -> CityInfo | None:

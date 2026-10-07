@@ -82,7 +82,7 @@ A frozen, slotted dataclass representing a meetup city.
 
 | Property | Derivation | Example |
 |---|---|---|
-| `slug` | `city.lower().replace(" ", "-")` | `"london"` |
+| `slug` | Explicit registered ASCII slug matching `^[a-z]+$` | `"london"` |
 | `field_value` | `f"{region}:{country}:{city}"` | `"Europe:UK:London"` |
 
 **Current Registry (immutable tuple):**
@@ -229,7 +229,7 @@ For each city in the `CITIES` registry:
 | `end_dt` | `dt + 3 hours` |
 | `start_str` | `dt.strftime("%Y-%m-%dT%H:%M:%S")` (no Z suffix — local time) |
 | `end_str` | `end_dt.strftime("%Y-%m-%dT%H:%M:%S")` (no Z suffix — local time) |
-| `event_name` | `f"Ansible Meetup {city.title()}"` |
+| `event_name` | `f"Ansible Meetup {city.city}"` |
 | `target_slug` | `f"{city.lower().replace(' ', '-')}-{mon}-{yyyy}"` (e.g., `manchester-oct-2026`) |
 
 **Phase 0: Validation and Pre-flight**
