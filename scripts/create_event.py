@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timedelta
 
 from ansible_events_lib import (
+    ApiError,
     CODE_OF_CONDUCT_URL,
     CITY_NAME_RE,
     DEFAULT_ITEM_NAME,

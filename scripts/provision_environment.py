@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from ansible_events_lib import (
     ANSIBLE_PRIMARY_COLOR,
-    ApiError,
     ATTENDEE_GROUP_PREFIX,
     STAFF_GROUP_NAME,
     CITIES,

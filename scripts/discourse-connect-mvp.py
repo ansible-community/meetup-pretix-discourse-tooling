@@ -43,6 +43,7 @@ import hmac
 import html
 import json
 import os
+import re
 import secrets
 import urllib.parse
 import urllib.request

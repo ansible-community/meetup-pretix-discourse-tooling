@@ -5,7 +5,8 @@ import logging
 import os
 import re
 import sys
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -204,8 +205,8 @@ def pretix_req(method: str, endpoint: str, payload: dict[str, Any] | None = None
         return {}
     try:
         data = resp.json()
-    except ValueError:
-        raise ApiError(f"Pretix {method} {endpoint} returned invalid JSON")
+    except ValueError as exc:
+        raise ApiError(f"Pretix {method} {endpoint} returned invalid JSON") from exc
     if not isinstance(data, dict):
         raise ApiError(f"Pretix {method} {endpoint} returned non-object JSON")
     return data
@@ -244,8 +245,8 @@ def discourse_req(
         return {}
     try:
         data = resp.json()
-    except ValueError:
-        raise ApiError(f"Discourse {method} {endpoint} returned invalid JSON")
+    except ValueError as exc:
+        raise ApiError(f"Discourse {method} {endpoint} returned invalid JSON") from exc
     if not isinstance(data, dict):
         raise ApiError(f"Discourse {method} {endpoint} returned non-object JSON")
     return data
@@ -271,8 +272,8 @@ def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
             resp = page_resp.json()
             if not isinstance(resp, dict):
                 raise ApiError(f"Pretix pagination returned non-object JSON: {next_url}")
-        except (httpx.HTTPError, ValueError):
-            raise ApiError(f"Pretix pagination failed for {next_url}")
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ApiError(f"Pretix pagination failed for {next_url}") from exc
     return results
 
 
