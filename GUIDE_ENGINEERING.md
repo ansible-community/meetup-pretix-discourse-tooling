@@ -144,7 +144,9 @@ api_timeout = 10
 | `api_key` | Discourse Admin API key with "All Users" scope. |
 | `organizer` | Pretix organizer slug — must match `ORGANIZER_SLUG` in `ansible_events_lib.py`. |
 
-The plugin accepts only `meetup-organisers-{city}` claims for city team access. DiscourseConnect always requests 2FA; the signed response must positively attest to the challenge for organizer claims and members of the Pretix staff team. Pretix admins alone manage staff-team membership. The Discourse Admin API key is required for every login to verify account security status. Missing or invalid API credentials deny login.
+The plugin accepts only `meetup-organisers-{city}` claims for city team access. DiscourseConnect always requests 2FA; the signed response must positively attest to the challenge for organiser claims, Pretix staff-team members, and Pretix accounts with `is_staff`. Pretix admins alone manage staff-team membership and `is_staff`. The Discourse Admin API key is required for every login to verify account security status. Missing or invalid API credentials deny login. Silenced and suspended accounts are both denied, with the reason shown to the user and recorded distinctly in the Pretix log.
+
+The SSO callback allows at most 10 weighted requests per client IP per 60 seconds; signature and nonce failures count twice. It uses Pretix's proxy-aware client-IP helper and the shared Django cache, and fails closed if that cache is unavailable. Production Pretix workers must share a cache backend with atomic increment support, and proxy trust must be configured correctly. SSO cookies expire when the browser closes; Pretix's configured idle and absolute session limits still apply.
 
 Restart Pretix after any `pretix.cfg` changes (config is loaded at import time).
 
