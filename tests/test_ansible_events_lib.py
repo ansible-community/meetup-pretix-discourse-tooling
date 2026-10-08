@@ -583,6 +583,42 @@ class TestProvisioningPermissions:
         assert quota["size"] == 100
         assert quota["items"] == [7]
 
+    def test_pretix_empty_metadata_choices_accepts_null_and_empty_list(self, monkeypatch):
+        import provision_environment
+
+        assert provision_environment.same_configuration_value("choices", None, [])
+        assert provision_environment.same_configuration_value("choices", [], None)
+
+        requests = []
+        prop = {
+            "id": 4,
+            "name": "forum_topic_url",
+            "default": "https://old.example/events",
+            "choices": None,
+            "required": False,
+            "protected": False,
+        }
+
+        def list_all(endpoint):
+            assert endpoint == "event_meta_properties"
+            return [prop.copy()]
+
+        def request(method, endpoint, payload=None):
+            requests.append((method, endpoint, payload))
+            assert method == "PATCH"
+            prop.update(payload)
+            return prop.copy()
+
+        monkeypatch.setattr(provision_environment, "pretix_list_all", list_all)
+        monkeypatch.setattr(provision_environment, "pretix_req", request)
+
+        provision_environment.reconcile_pretix_meta_property()
+
+        assert len(requests) == 1
+        assert "choices" not in requests[0][2]
+        assert prop["choices"] is None
+        assert prop["protected"] is True
+
     def test_city_plans_are_built_from_registered_cities(self):
         import provision_environment
 

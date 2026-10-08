@@ -191,6 +191,9 @@ UNORDERED_FIELDS: set[str] = {
 
 
 def same_configuration_value(field: str, current: Any, desired: Any) -> bool:
+    if field == "choices" and current in (None, []) and desired in (None, []):
+        # Pretix represents an unrestricted metadata property as either null or [].
+        return True
     if field in UNORDERED_FIELDS and isinstance(current, list) and isinstance(desired, list):
         return set(current) == set(desired)
     return current == desired
@@ -367,7 +370,7 @@ def reconcile_pretix_meta_property() -> None:
     desired = {
         "name": "forum_topic_url",
         "default": EVENTS_FORUM_URL,
-        "choices": [],
+        "choices": None,
         "required": False,
         "protected": True,
     }
