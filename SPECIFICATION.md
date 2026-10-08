@@ -171,7 +171,7 @@ For each city in the `CITIES` registry:
 
 2. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force group and member-list visibility level 3 (staff only).
 
-3. Reconcile regional subcategory by parent and name, enforcing its description, color, read permissions, and `moderating_group_ids` assignment to that city's organiser group. Then remove registered organiser moderator assignments from every other category.
+3. Reconcile regional subcategory by parent and name. Set `everyone` to `create_post` (level 2: view and reply, but no new topics), and grant `full` (level 1) only to that city's organiser group. Do not grant category permissions to attendee groups; they are used for notifications. Set `moderating_group_ids` to that city's organiser group. Then remove registered organiser permissions and moderator assignments from every other category.
 
 **Phase 2: Pretix Provisioning**
 

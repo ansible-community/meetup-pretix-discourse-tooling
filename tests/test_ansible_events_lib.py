@@ -545,6 +545,53 @@ class TestProvisioningPermissions:
 
         assert "meetup-attendee-london: Created | visibility: OK, member visibility: OK" in caplog.text
 
+    def test_city_category_uses_reply_only_default_and_city_organiser_access(self, monkeypatch):
+        import provision_environment
+
+        current = {
+            "id": 51,
+            "name": "London",
+            "parent_category_id": 8,
+            "color": "EE0000",
+            "text_color": "FFFFFF",
+            "description": (
+                "Ansible Community Meetup events in London. Free, in-person meetups for automation enthusiasts — "
+                "talks, networking, and community. RSVP to upcoming Ansible Meetup London events below."
+            ),
+            "moderating_group_ids": [9],
+            "group_permissions": [{"group_id": 0, "group_name": "everyone", "permission_type": 1}],
+        }
+        update_payloads = []
+
+        def request(method, endpoint, payload=None):
+            if method == "GET" and endpoint == "c/51/show.json":
+                return {"category": current.copy()}
+            if method == "PUT" and endpoint == "categories/51.json":
+                update_payloads.append(payload)
+                current.update({key: value for key, value in payload.items() if key != "permissions"})
+                current["group_permissions"] = [
+                    {
+                        "group_id": 0 if name == "everyone" else 9,
+                        "group_name": name,
+                        "permission_type": permission,
+                    }
+                    for name, permission in payload["permissions"].items()
+                ]
+                return {"category": current.copy()}
+            raise AssertionError(f"Unexpected Discourse request: {method} {endpoint}")
+
+        monkeypatch.setattr(provision_environment, "discourse_req", request)
+        monkeypatch.setattr(provision_environment, "discourse_categories", lambda: [current.copy()])
+        monkeypatch.setattr(provision_environment, "discourse_city_category_id", lambda city_name: 51)
+
+        provision_environment.ensure_discourse_category("London", "meetup-organisers-london", 9)
+
+        assert len(update_payloads) == 1
+        assert update_payloads[0]["permissions"] == {
+            "everyone": provision_environment.CATEGORY_PERMISSION_CREATE_POST,
+            "meetup-organisers-london": provision_environment.CATEGORY_PERMISSION_FULL,
+        }
+
     def test_organizer_access_is_removed_everywhere_except_own_subcategory(self, monkeypatch):
         import provision_environment
 
@@ -556,14 +603,14 @@ class TestProvisioningPermissions:
             11: {
                 "moderating_group_ids": [9, 10],
                 "group_permissions": [
-                    {"group_id": 0, "group_name": "everyone", "permission_type": 1},
+                    {"group_id": 0, "group_name": "everyone", "permission_type": 2},
                     {"group_id": 9, "group_name": "meetup-organisers-london", "permission_type": 1},
                 ],
             },
             12: {
                 "moderating_group_ids": [10, 15],
                 "group_permissions": [
-                    {"group_id": 0, "group_name": "everyone", "permission_type": 1},
+                    {"group_id": 0, "group_name": "everyone", "permission_type": 2},
                     {"group_id": 9, "group_name": "meetup-organisers-london", "permission_type": 1},
                 ],
             },
@@ -605,8 +652,8 @@ class TestProvisioningPermissions:
 
         assert current[11]["moderating_group_ids"] == [9]
         assert current[11]["group_permissions"] == [
-            {"group_id": 0, "group_name": "everyone", "permission_type": 1},
+            {"group_id": 0, "group_name": "everyone", "permission_type": 2},
             {"group_id": 9, "group_name": "meetup-organisers-london", "permission_type": 1},
         ]
         assert current[12]["moderating_group_ids"] == [15]
-        assert current[12]["group_permissions"] == [{"group_id": 0, "group_name": "everyone", "permission_type": 1}]
+        assert current[12]["group_permissions"] == [{"group_id": 0, "group_name": "everyone", "permission_type": 2}]

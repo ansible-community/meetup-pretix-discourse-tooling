@@ -43,6 +43,9 @@ from ansible_events_lib import (
     run_cli,
 )
 
+CATEGORY_PERMISSION_FULL = 1
+CATEGORY_PERMISSION_CREATE_POST = 2
+
 
 def list_discourse_groups() -> list[dict]:
     """Fetch every Discourse group page so reconciliations cannot miss later groups."""
@@ -303,7 +306,7 @@ def category_permission_map(category: Mapping[str, Any], category_id: int) -> di
     return permissions
 
 
-def ensure_discourse_category(city_name: str, host_group: str, attendee_group: str, host_group_id: int) -> None:
+def ensure_discourse_category(city_name: str, host_group: str, host_group_id: int) -> None:
     desired = {
         "name": city_name,
         "parent_category_id": DISCOURSE_PARENT_CATEGORY_ID,
@@ -315,7 +318,12 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
             f"talks, networking, and community. "
             f"RSVP to upcoming Ansible Meetup {city_name} events below."
         ),
-        "permissions": {"everyone": 1, host_group: 1, attendee_group: 1},
+        # Everyone can read and reply; only this city's organiser group can
+        # create topics. Discourse drops custom groups if everyone has full access.
+        "permissions": {
+            "everyone": CATEGORY_PERMISSION_CREATE_POST,
+            host_group: CATEGORY_PERMISSION_FULL,
+        },
         "moderating_group_ids": [host_group_id],
     }
     categories = discourse_categories()
@@ -336,7 +344,20 @@ def ensure_discourse_category(city_name: str, host_group: str, attendee_group: s
             raise ApiError(f"Could not read current settings for Discourse category {city_name!r}")
         before = {**before, "permissions": category_permission_map(before, existing["id"])}
         if any(not same_configuration_value(key, before.get(key), value) for key, value in desired.items()):
-            discourse_req("PUT", f"categories/{existing['id']}.json", desired)
+            update_response = discourse_req("PUT", f"categories/{existing['id']}.json", desired)
+            response_category = update_response.get("category")
+            if isinstance(response_category, dict):
+                logger.info(
+                    "Events > %s category permissions: API write returned %s",
+                    city_name,
+                    category_permission_map(response_category, existing["id"]),
+                )
+            else:
+                logger.info(
+                    "Events > %s category permissions: API write response fields %s",
+                    city_name,
+                    sorted(update_response),
+                )
     else:
         discourse_req("POST", "categories.json", desired)
     category_id = discourse_city_category_id(city_name)
@@ -412,7 +433,7 @@ def reconcile_organiser_category_access(
         }
         if city_access_for_category is not None:
             city_group_name, _ = city_access_for_category
-            desired_permissions[city_group_name] = 1
+            desired_permissions[city_group_name] = CATEGORY_PERMISSION_FULL
         if desired_permissions != permissions:
             discourse_req(
                 "PUT",
@@ -735,8 +756,8 @@ def main() -> None:
 
     city_access = {}
     for city in CITIES:
-        host_group, att_group, host_group_id = ensure_discourse_groups(city.slug, city.city)
-        ensure_discourse_category(city.city, host_group, att_group, host_group_id)
+        host_group, _, host_group_id = ensure_discourse_groups(city.slug, city.city)
+        ensure_discourse_category(city.city, host_group, host_group_id)
         city_category_id = discourse_city_category_id(city.city)
         ensure_group_tracks_city_category(host_group, host_group_id, city_category_id)
         city_access[city_category_id] = (host_group, host_group_id)
