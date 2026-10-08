@@ -284,6 +284,40 @@ class TestPretixApiContract:
         assert request.call_args.kwargs["headers"]["Api-Key"] == "test-api-key"
         assert request.call_args.kwargs["headers"]["Api-Username"] == "organiser"
 
+    def test_discourse_request_retries_rate_limit_using_wait_seconds(self, monkeypatch):
+        import ansible_events_lib
+
+        monkeypatch.setattr(ansible_events_lib, "DISCOURSE_API_KEY", "test-api-key")
+        limited = Mock(status_code=429, text='{"extras":{"wait_seconds":31}}', headers={})
+        limited.json.return_value = {"extras": {"wait_seconds": 31}}
+        success = Mock(status_code=200, text='{"groups":[]}', headers={})
+        success.json.return_value = {"groups": []}
+        request = Mock(side_effect=[limited, success])
+        sleep = Mock()
+        monkeypatch.setattr(ansible_events_lib.httpx, "request", request)
+        monkeypatch.setattr(ansible_events_lib.time, "sleep", sleep)
+
+        assert ansible_events_lib.discourse_req("GET", "c/43/show.json") == {"groups": []}
+
+        assert request.call_count == 2
+        sleep.assert_called_once_with(31.0)
+
+    def test_discourse_request_rate_limit_retries_are_bounded(self, monkeypatch):
+        import ansible_events_lib
+
+        limited = Mock(status_code=429, text="rate limited", headers={})
+        limited.json.return_value = {}
+        request = Mock(return_value=limited)
+        sleep = Mock()
+        monkeypatch.setattr(ansible_events_lib.httpx, "request", request)
+        monkeypatch.setattr(ansible_events_lib.time, "sleep", sleep)
+
+        with pytest.raises(ansible_events_lib.ApiError, match="failed after rate-limit retries"):
+            ansible_events_lib.discourse_req("GET", "c/43/show.json")
+
+        assert request.call_count == ansible_events_lib.DISCOURSE_429_MAX_RETRIES + 1
+        assert sleep.call_count == ansible_events_lib.DISCOURSE_429_MAX_RETRIES
+
     def test_city_category_lookup_requests_nested_categories(self, monkeypatch):
         import ansible_events_lib
 

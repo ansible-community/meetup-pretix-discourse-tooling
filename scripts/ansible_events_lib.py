@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+import time
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -61,6 +62,7 @@ ORGANIZERS_GROUP_RE = re.compile(r"^meetup-organisers-([a-z]+)$")
 MONTH_SLUGS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 EVENT_SLUG_RE = re.compile(rf"^([a-z]+)-({'|'.join(MONTH_SLUGS)})-[0-9]{{4}}$")
 API_REQUEST_TIMEOUT_SECONDS = 10
+DISCOURSE_429_MAX_RETRIES = 3
 
 # --- Pretix template ---
 TEMPLATE_SLUG = "ansible-meetup-template-v6"
@@ -281,10 +283,44 @@ def discourse_req(
         "Api-Username": run_as or DISCOURSE_API_USER,
         "Content-Type": "application/json",
     }
-    try:
-        resp = httpx.request(method, url, json=payload, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
-    except httpx.HTTPError as exc:
-        raise ApiError(f"Discourse {method} {endpoint} connection error: {exc}") from exc
+    for attempt in range(DISCOURSE_429_MAX_RETRIES + 1):
+        try:
+            resp = httpx.request(method, url, json=payload, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
+        except httpx.HTTPError as exc:
+            raise ApiError(f"Discourse {method} {endpoint} connection error: {exc}") from exc
+        if resp.status_code != 429:
+            break
+        if attempt == DISCOURSE_429_MAX_RETRIES:
+            raise ApiError(f"Discourse {method} {endpoint} failed after rate-limit retries: 429 {resp.text[:200]}")
+
+        retry_after = resp.headers.get("Retry-After")
+        try:
+            delay = float(retry_after) if retry_after is not None else None
+        except ValueError:
+            delay = None
+        if delay is None:
+            try:
+                error_body = resp.json()
+            except ValueError:
+                error_body = {}
+            extras = error_body.get("extras") if isinstance(error_body, dict) else None
+            wait_seconds = extras.get("wait_seconds") if isinstance(extras, dict) else None
+            delay = (
+                float(wait_seconds)
+                if isinstance(wait_seconds, (int, float)) and not isinstance(wait_seconds, bool) and wait_seconds >= 0
+                else float(2**attempt)
+            )
+
+        logger.warning(
+            "Discourse rate limit for %s %s; retrying in %.1f seconds (%d/%d)",
+            method,
+            endpoint,
+            delay,
+            attempt + 1,
+            DISCOURSE_429_MAX_RETRIES,
+        )
+        time.sleep(delay)
+
     if resp.status_code not in (200, 201, 204):
         raise ApiError(f"Discourse {method} {endpoint} failed: {resp.status_code} {resp.text[:200]}")
     if not resp.text:
