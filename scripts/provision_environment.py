@@ -68,7 +68,7 @@ class CityForumPlan:
         return self.city.attendee_group
 
     def organiser_group_settings(self) -> dict[str, Any]:
-        settings = {
+        settings: dict[str, Any] = {
             "name": self.organiser_group_name,
             "full_name": f"Ansible Meetup Organisers - {self.city.city}",
             "bio_raw": (
