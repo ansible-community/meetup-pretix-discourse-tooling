@@ -418,11 +418,14 @@ def reconcile_city_category_access(
         for name, group in groups_by_name.items()
         if ORGANIZERS_GROUP_RE.fullmatch(name) and isinstance((group_id := group.get("id")), int)
     }
+    checked_categories = 0
+    updated_categories: list[str] = []
 
     for category in categories:
         category_id = category.get("id")
         if not isinstance(category_id, int):
             raise ApiError("Discourse categories response contains an invalid category ID")
+        checked_categories += 1
         details_response = discourse_req("GET", f"c/{category_id}/show.json")
         current = details_response.get("category", details_response)
         if not isinstance(current, dict):
@@ -485,6 +488,8 @@ def reconcile_city_category_access(
                 raise ApiError(
                     f"Discourse category {category_id} failed reconciliation for: {', '.join(mismatched_fields)}"
                 )
+            if plan is None:
+                updated_categories.append(f"{current.get('name', category_id)} ({category_id})")
 
         if plan is not None:
             log_resource_status(
@@ -492,14 +497,16 @@ def reconcile_city_category_access(
                 city_settings,
                 None if plan.category_created else {**current, "permissions": current_permissions},
             )
-        else:
-            logger.info(
-                "Discourse category %s (%s): organiser permissions: %s, moderator groups: %s",
-                current.get("name", category_id),
-                category_id,
-                "Changed" if "permissions" in changes else "OK",
-                "Changed" if "moderating_group_ids" in changes else "OK",
-            )
+
+    if updated_categories:
+        logger.info(
+            "Discourse organiser access: checked %d categories; updated %d: %s",
+            checked_categories,
+            len(updated_categories),
+            ", ".join(updated_categories),
+        )
+    else:
+        logger.info("Discourse organiser access: checked %d categories; no changes required", checked_categories)
 
 
 def ensure_category_group_moderation_enabled() -> None:

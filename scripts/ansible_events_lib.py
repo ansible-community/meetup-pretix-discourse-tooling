@@ -15,6 +15,7 @@ import httpx
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("ansible_meetups")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class ApiError(RuntimeError):
