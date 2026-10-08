@@ -484,7 +484,6 @@ class TestProvisioningPermissions:
         assert requests == [
             ("GET", "events/template/settings", None),
             ("PATCH", "events/template/settings", {"attendee_names_asked": True}),
-            ("GET", "events/template/settings", None),
         ]
 
     def test_template_settings_noop_does_not_patch(self, monkeypatch):
@@ -502,8 +501,87 @@ class TestProvisioningPermissions:
 
         assert requests == [
             ("GET", "events/template/settings", None),
-            ("GET", "events/template/settings", None),
         ]
+
+    def test_pretix_teams_require_two_factor_authentication(self, monkeypatch):
+        import provision_environment
+
+        requests = []
+        created_teams = {}
+        next_id = 1
+
+        def list_all(endpoint):
+            if endpoint == "teams":
+                return []
+            if endpoint == "events":
+                return []
+            raise AssertionError(f"Unexpected Pretix list endpoint: {endpoint}")
+
+        def request(method, endpoint, payload=None):
+            nonlocal next_id
+            requests.append((method, endpoint, payload))
+            if method == "POST" and endpoint == "teams":
+                team = {**payload, "id": next_id}
+                created_teams[next_id] = team
+                next_id += 1
+                return team
+            if method == "GET" and endpoint.startswith("teams/"):
+                return created_teams[int(endpoint.split("/")[1])]
+            raise AssertionError(f"Unexpected Pretix request: {method} {endpoint}")
+
+        monkeypatch.setattr(provision_environment, "pretix_list_all", list_all)
+        monkeypatch.setattr(provision_environment, "pretix_req", request)
+
+        provision_environment.reconcile_pretix_teams()
+
+        team_creations = [payload for method, endpoint, payload in requests if method == "POST" and endpoint == "teams"]
+        assert len(team_creations) == len(provision_environment.CITIES) + 1
+        assert all(team["require_2fa"] is True for team in team_creations)
+
+    def test_template_ticket_reconciles_item_and_quota_drift(self, monkeypatch):
+        import provision_environment
+
+        requests = []
+        item = {
+            "id": 7,
+            "name": {"en": provision_environment.DEFAULT_ITEM_NAME},
+            "default_price": "2.00",
+            "active": False,
+            "admission": False,
+        }
+        quota = {"id": 9, "name": provision_environment.DEFAULT_QUOTA_NAME, "size": 50, "items": []}
+
+        def list_all(endpoint):
+            if endpoint == f"events/{provision_environment.TEMPLATE_SLUG}/items":
+                return [item.copy()]
+            if endpoint == f"events/{provision_environment.TEMPLATE_SLUG}/quotas":
+                return [quota.copy()]
+            raise AssertionError(f"Unexpected Pretix list endpoint: {endpoint}")
+
+        def request(method, endpoint, payload=None):
+            requests.append((method, endpoint, payload))
+            if method == "PATCH" and endpoint.endswith("/items/7"):
+                item.update(payload)
+                return item.copy()
+            if method == "PATCH" and endpoint.endswith("/quotas/9"):
+                quota.update(payload)
+                return quota.copy()
+            raise AssertionError(f"Unexpected Pretix request: {method} {endpoint}")
+
+        monkeypatch.setattr(provision_environment, "pretix_list_all", list_all)
+        monkeypatch.setattr(provision_environment, "pretix_req", request)
+
+        provision_environment.reconcile_template_ticket()
+
+        assert [request[0:2] for request in requests] == [
+            ("PATCH", f"events/{provision_environment.TEMPLATE_SLUG}/items/7"),
+            ("PATCH", f"events/{provision_environment.TEMPLATE_SLUG}/quotas/9"),
+        ]
+        assert item["default_price"] == provision_environment.DEFAULT_ITEM_PRICE
+        assert item["active"] is True
+        assert item["admission"] is True
+        assert quota["size"] == 100
+        assert quota["items"] == [7]
 
     def test_city_plans_are_built_from_registered_cities(self):
         import provision_environment

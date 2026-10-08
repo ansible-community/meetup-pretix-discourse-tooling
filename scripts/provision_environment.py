@@ -18,7 +18,6 @@ from ansible_events_lib import (
     CITIES,
     CityInfo,
     CODE_OF_CONDUCT_URL,
-    CONTACT_EMAIL,
     DEFAULT_ITEM_NAME,
     DEFAULT_ITEM_PRICE,
     DEFAULT_QUOTA_NAME,
@@ -33,7 +32,6 @@ from ansible_events_lib import (
     PRIVACY_POLICY_URL,
     TEMPLATE_SLUG,
     USER_CITY_FIELD_ID,
-    check_event_exists,
     discourse_req,
     discourse_categories,
     logger,
@@ -181,6 +179,7 @@ FIELD_LABELS: dict[str, str] = {
     "all_organizer_permissions": "all organizer permissions",
     "limit_organizer_permissions": "organizer permissions",
     "limit_events": "event scope",
+    "require_2fa": "2FA required",
 }
 UNORDERED_FIELDS: set[str] = {
     "limit_event_permissions",
@@ -232,14 +231,256 @@ def reconcile_pretix_event_settings(event_slug: str, desired: Mapping[str, Any])
         for field, value in desired.items()
         if field not in before or not same_configuration_value(field, before[field], value)
     }
-    if changes:
-        pretix_req("PATCH", endpoint, changes)
+    if not changes:
+        log_resource_status(f"Template {event_slug} settings", desired, before)
+        return
 
-    after = pretix_req("GET", endpoint)
+    after = pretix_req("PATCH", endpoint, changes)
+    if not all(
+        field in after and same_configuration_value(field, after[field], value) for field, value in desired.items()
+    ):
+        after = pretix_req("GET", endpoint)
     for field, value in desired.items():
         if field not in after or not same_configuration_value(field, after[field], value):
             raise ApiError(f"Pretix event {event_slug!r} did not reconcile setting {field!r}")
     log_resource_status(f"Template {event_slug} settings", desired, before)
+
+
+def reconcile_pretix_mapping(
+    endpoint: str,
+    resource: str,
+    desired: Mapping[str, Any],
+    before: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Patch a resource's changed fields and verify the response (or read it back)."""
+    changes = {
+        field: value
+        for field, value in desired.items()
+        if field not in before or not same_configuration_value(field, before[field], value)
+    }
+    if not changes:
+        log_resource_status(resource, desired, before)
+        return dict(before)
+
+    after = pretix_req("PATCH", endpoint, changes)
+    if not all(
+        field in after and same_configuration_value(field, after[field], value) for field, value in desired.items()
+    ):
+        after = pretix_req("GET", endpoint)
+    for field, value in desired.items():
+        if field not in after or not same_configuration_value(field, after[field], value):
+            raise ApiError(f"Pretix resource {resource!r} did not reconcile field {field!r}")
+    log_resource_status(resource, desired, before)
+    return after
+
+
+def reconcile_pretix_teams() -> list[dict[str, Any]]:
+    """Reconcile the staff and city teams from one teams/events snapshot."""
+    all_teams = pretix_list_all("teams")
+    all_events = pretix_list_all("events")
+    teams_by_name: dict[str, list[dict[str, Any]]] = {}
+    for team in all_teams:
+        name = team.get("name")
+        if not isinstance(name, str):
+            raise ApiError("Pretix teams response contains a team without a valid name")
+        teams_by_name.setdefault(name, []).append(team)
+
+    desired_teams = [
+        (
+            STAFF_TEAM_NAME,
+            {
+                "name": STAFF_TEAM_NAME,
+                "require_2fa": True,
+                "all_events": True,
+                "limit_events": [],
+                "all_event_permissions": True,
+                "limit_event_permissions": [],
+                "all_organizer_permissions": False,
+                "limit_organizer_permissions": [],
+            },
+        )
+    ]
+    for city in CITIES:
+        if any(
+            isinstance(event.get("slug"), str)
+            and event["slug"].startswith(f"{city.slug}-")
+            and not EVENT_SLUG_RE.fullmatch(event["slug"])
+            for event in all_events
+        ):
+            raise ApiError(f"Pretix has an invalid event slug for registered city {city.slug!r}")
+        city_events = sorted(
+            event["slug"]
+            for event in all_events
+            if isinstance(event.get("slug"), str)
+            and (match := EVENT_SLUG_RE.fullmatch(event["slug"]))
+            and match.group(1) == city.slug
+        )
+        desired_teams.append(
+            (
+                city.team_name,
+                {
+                    "name": city.team_name,
+                    "require_2fa": True,
+                    "all_events": False,
+                    "all_event_permissions": False,
+                    "limit_event_permissions": ORGANISER_PERMISSIONS,
+                    "all_organizer_permissions": False,
+                    "limit_organizer_permissions": [],
+                    "limit_events": city_events,
+                },
+            )
+        )
+
+    for name, desired in desired_teams:
+        existing = teams_by_name.get(name, [])
+        if len(existing) > 1:
+            raise ApiError(f"Multiple Pretix teams are named {name!r}")
+        before = existing[0] if existing else None
+        if before is None:
+            created = pretix_req("POST", "teams", desired)
+            team_id = created.get("id")
+            if not isinstance(team_id, int):
+                raise ApiError(f"Could not resolve Pretix team {name!r}")
+            actual = pretix_req("GET", f"teams/{team_id}")
+            log_resource_status(name, desired, None)
+        else:
+            team_id = before.get("id")
+            if not isinstance(team_id, int):
+                raise ApiError(f"Pretix team {name!r} has an invalid ID")
+            actual = reconcile_pretix_mapping(f"teams/{team_id}", name, desired, before)
+            if actual is before:
+                continue
+        for field, value in desired.items():
+            if field not in actual or not same_configuration_value(field, actual[field], value):
+                raise ApiError(f"Pretix team {name!r} did not reconcile field {field!r}")
+    return all_events
+
+
+def reconcile_pretix_meta_property() -> None:
+    """Ensure the Forum event URL property exists and cannot be edited by organisers."""
+    properties = pretix_list_all("event_meta_properties")
+    if any(not isinstance(prop.get("name"), str) for prop in properties):
+        raise ApiError("Pretix event metadata response contains a property without a valid name")
+    matches = [prop for prop in properties if prop.get("name") == "forum_topic_url"]
+    if len(matches) > 1:
+        raise ApiError("Pretix has multiple event metadata properties named 'forum_topic_url'")
+    desired = {
+        "name": "forum_topic_url",
+        "default": EVENTS_FORUM_URL,
+        "choices": [],
+        "required": False,
+        "protected": True,
+    }
+    if not matches:
+        created = pretix_req("POST", "event_meta_properties", desired)
+        if any(created.get(field) != value for field, value in desired.items()):
+            raise ApiError("Pretix Forum topic URL metadata property did not reconcile after creation")
+        log_resource_status("forum_topic_url metadata property", desired, None)
+        return
+    prop = matches[0]
+    property_id = prop.get("id")
+    if not isinstance(property_id, int):
+        raise ApiError("Pretix Forum topic URL metadata property has an invalid ID")
+    reconcile_pretix_mapping(f"event_meta_properties/{property_id}", "forum_topic_url metadata property", desired, prop)
+
+
+def reconcile_template_ticket() -> None:
+    """Ensure the template has its standard RSVP item and a 100-ticket quota."""
+    item_endpoint = f"events/{TEMPLATE_SLUG}/items"
+    items = pretix_list_all(item_endpoint)
+    item_matches = []
+    for item in items:
+        name = item.get("name")
+        if not isinstance(name, dict) or not isinstance(name.get("en"), str):
+            raise ApiError("Pretix template item response contains an invalid localized name")
+        if name["en"] == DEFAULT_ITEM_NAME:
+            item_matches.append(item)
+    if len(item_matches) > 1:
+        raise ApiError(f"Pretix template has multiple items named {DEFAULT_ITEM_NAME!r}")
+    item_desired = {
+        "name": {"en": DEFAULT_ITEM_NAME},
+        "default_price": DEFAULT_ITEM_PRICE,
+        "active": True,
+        "admission": True,
+    }
+    if item_matches:
+        item = item_matches[0]
+        item_id = item.get("id")
+        if not isinstance(item_id, int):
+            raise ApiError(f"Pretix template item {DEFAULT_ITEM_NAME!r} has an invalid ID")
+        item = reconcile_pretix_mapping(f"{item_endpoint}/{item_id}", DEFAULT_ITEM_NAME, item_desired, item)
+    else:
+        item = pretix_req("POST", item_endpoint, item_desired)
+        item_id = item.get("id")
+        if not isinstance(item_id, int):
+            raise ApiError(f"Could not resolve Pretix template item {DEFAULT_ITEM_NAME!r}")
+        log_resource_status(DEFAULT_ITEM_NAME, item_desired, None)
+    if any(field not in item or item[field] != value for field, value in item_desired.items()):
+        raise ApiError(f"Pretix template item {DEFAULT_ITEM_NAME!r} did not reconcile")
+
+    quota_endpoint = f"events/{TEMPLATE_SLUG}/quotas"
+    quotas = pretix_list_all(quota_endpoint)
+    quota_matches = [quota for quota in quotas if quota.get("name") == DEFAULT_QUOTA_NAME]
+    if len(quota_matches) > 1:
+        raise ApiError(f"Pretix template has multiple quotas named {DEFAULT_QUOTA_NAME!r}")
+    quota_desired = {"name": DEFAULT_QUOTA_NAME, "size": 100, "items": [item_id]}
+    if quota_matches:
+        quota = quota_matches[0]
+        quota_id = quota.get("id")
+        if not isinstance(quota_id, int):
+            raise ApiError(f"Pretix template quota {DEFAULT_QUOTA_NAME!r} has an invalid ID")
+        reconcile_pretix_mapping(f"{quota_endpoint}/{quota_id}", DEFAULT_QUOTA_NAME, quota_desired, quota)
+    else:
+        created = pretix_req("POST", quota_endpoint, quota_desired)
+        if any(created.get(field) != value for field, value in quota_desired.items()):
+            raise ApiError(f"Pretix template quota {DEFAULT_QUOTA_NAME!r} did not reconcile after creation")
+        log_resource_status(DEFAULT_QUOTA_NAME, quota_desired, None)
+
+
+def reconcile_pretix_template(events: list[dict[str, Any]]) -> None:
+    """Create or reconcile the private template and its settings/ticket configuration."""
+    matches = [event for event in events if event.get("slug") == TEMPLATE_SLUG]
+    if len(matches) > 1:
+        raise ApiError(f"Pretix has multiple events named {TEMPLATE_SLUG!r}")
+    desired_event = {"live": False, "is_template": True, "timezone": "UTC"}
+    if matches:
+        event = matches[0]
+        if not all(field in event for field in desired_event):
+            event = pretix_req("GET", f"events/{TEMPLATE_SLUG}")
+        reconcile_pretix_mapping(f"events/{TEMPLATE_SLUG}", TEMPLATE_SLUG, desired_event, event)
+    else:
+        logger.info("Creating new master template (%s)...", TEMPLATE_SLUG)
+        event = pretix_req(
+            "POST",
+            "events",
+            {
+                "name": {"en": "TEMPLATE: Standard Meetup"},
+                "slug": TEMPLATE_SLUG,
+                **desired_event,
+                "currency": "USD",
+                "date_from": "2026-12-31T18:00:00Z",
+            },
+        )
+        if any(event.get(field) != value for field, value in desired_event.items()):
+            raise ApiError(f"Pretix template {TEMPLATE_SLUG!r} did not reconcile after creation")
+        log_resource_status(TEMPLATE_SLUG, desired_event, None)
+
+    logger.info("Reconciling Pretix template settings...")
+    reconcile_pretix_event_settings(
+        TEMPLATE_SLUG,
+        {
+            "max_items_per_order": 1,
+            "invoice_address_asked": False,
+            "attendee_names_asked": True,
+            "attendee_names_required": True,
+            "attendee_emails_asked": False,
+            "name_scheme": "full",
+            "order_email_asked_twice": False,
+            "payment_term_last": None,
+            "meta_noindex": True,
+        },
+    )
+    reconcile_template_ticket()
 
 
 def group_id_from_response(response: Mapping[str, Any], resource: str) -> int:
@@ -557,226 +798,30 @@ def main() -> None:
     pre_flight_checks()
 
     logger.info("--- 1. PRETIX PROVISIONING ---")
-    pretix_req(
-        "PATCH",
-        "",
-        {
-            "timezone": "UTC",
-            "contact_mail": CONTACT_EMAIL,
-            "settings": {"organizer_team_creation": False},
+    organizer_settings = {
+        "primary_color": ANSIBLE_PRIMARY_COLOR,
+        "imprint_url": {"en": CODE_OF_CONDUCT_URL},
+        "privacy_url": {"en": PRIVACY_POLICY_URL},
+        "organizer_homepage_text": {
+            "en": (
+                "Welcome to Ansible Community Meetups! "
+                f"Browse upcoming events and RSVP, or visit [the forum]({EVENTS_FORUM_URL}) "
+                "for discussions, talk proposals, and community."
+            )
         },
-    )
-    logger.info("Configuring branding, footer links, and legal URLs...")
-    pretix_req(
-        "PATCH",
-        "settings",
-        {
-            "primary_color": ANSIBLE_PRIMARY_COLOR,
-            "imprint_url": {"en": CODE_OF_CONDUCT_URL},
-            "privacy_url": {"en": PRIVACY_POLICY_URL},
-            "organizer_homepage_text": {
-                "en": (
-                    "Welcome to Ansible Community Meetups! "
-                    f"Browse upcoming events and RSVP, or visit [the forum]({EVENTS_FORUM_URL}) "
-                    "for discussions, talk proposals, and community."
-                )
-            },
-        },
-    )
-
-    logger.info("Reconciling Pretix staff team %s...", STAFF_TEAM_NAME)
-    staff_teams = [team for team in pretix_list_all("teams") if team.get("name") == STAFF_TEAM_NAME]
-    if len(staff_teams) > 1:
-        raise ApiError(f"Multiple Pretix teams are named {STAFF_TEAM_NAME!r}")
-    staff_team_payload = {
-        "name": STAFF_TEAM_NAME,
-        "all_events": True,
-        "limit_events": [],
-        "all_event_permissions": True,
-        "limit_event_permissions": [],
-        "all_organizer_permissions": False,
-        "limit_organizer_permissions": [],
     }
-    previous_staff_team = staff_teams[0] if staff_teams else None
-    if staff_teams:
-        if any(
-            not same_configuration_value(key, staff_teams[0].get(key), value)
-            for key, value in staff_team_payload.items()
-        ):
-            pretix_req("PATCH", f"teams/{staff_teams[0]['id']}", staff_team_payload)
-        staff_team = pretix_req("GET", f"teams/{staff_teams[0]['id']}")
-    else:
-        created_staff_team = pretix_req("POST", "teams", staff_team_payload)
-        staff_team_id = created_staff_team.get("id")
-        if not isinstance(staff_team_id, int):
-            raise ApiError(f"Could not resolve Pretix staff team {STAFF_TEAM_NAME!r}")
-        staff_team = pretix_req("GET", f"teams/{staff_team_id}")
-    if (
-        any(staff_team.get(key) != value for key, value in staff_team_payload.items() if key != "name")
-        or staff_team.get("name") != STAFF_TEAM_NAME
-    ):
-        raise ApiError(f"Pretix staff team {STAFF_TEAM_NAME!r} did not reconcile to the requested settings")
-    log_resource_status(STAFF_TEAM_NAME, staff_team_payload, previous_staff_team)
+    current_settings = pretix_req("GET", "settings")
+    reconcile_pretix_mapping(
+        "settings",
+        "Pretix organizer settings",
+        organizer_settings,
+        current_settings,
+    )
 
-    logger.info("Reconciling regional Pretix Teams...")
-    all_teams = pretix_list_all("teams")
-    all_events = pretix_list_all("events")
-    teams_by_name: dict[str, list[dict]] = {}
-    for team in all_teams:
-        name = team.get("name")
-        if not isinstance(name, str):
-            raise ApiError("Pretix teams response contains a team without a valid name")
-        teams_by_name.setdefault(name, []).append(team)
-    for city in CITIES:
-        if any(
-            isinstance(event.get("slug"), str)
-            and event["slug"].startswith(f"{city.slug}-")
-            and not EVENT_SLUG_RE.fullmatch(event["slug"])
-            for event in all_events
-        ):
-            raise ApiError(f"Pretix has an invalid event slug for registered city {city.slug!r}")
-        city_events = sorted(
-            event["slug"]
-            for event in all_events
-            if isinstance(event.get("slug"), str)
-            and (match := EVENT_SLUG_RE.fullmatch(event["slug"]))
-            and match.group(1) == city.slug
-        )
-        desired_team = {
-            "name": city.team_name,
-            "all_events": False,
-            "all_event_permissions": False,
-            "limit_event_permissions": ORGANISER_PERMISSIONS,
-            "all_organizer_permissions": False,
-            "limit_organizer_permissions": [],
-            "limit_events": city_events,
-        }
-        existing = teams_by_name.get(city.team_name, [])
-        if len(existing) > 1:
-            raise ApiError(f"Multiple Pretix teams are named {city.team_name!r}")
-        previous_team = existing[0] if existing else None
-        if existing:
-            team_id = existing[0].get("id")
-            if not isinstance(team_id, int):
-                raise ApiError(f"Pretix team {city.team_name!r} has an invalid ID")
-            if any(
-                not same_configuration_value(field, existing[0].get(field), value)
-                for field, value in desired_team.items()
-            ):
-                pretix_req("PATCH", f"teams/{team_id}", desired_team)
-        else:
-            created_team = pretix_req(
-                "POST",
-                "teams",
-                desired_team,
-            )
-            team_id = created_team.get("id")
-            if not isinstance(team_id, int):
-                raise ApiError(f"Could not resolve Pretix team {city.team_name!r}")
-        actual_team = pretix_req("GET", f"teams/{team_id}")
-        for field in (
-            "all_events",
-            "all_event_permissions",
-            "all_organizer_permissions",
-        ):
-            if actual_team.get(field) != desired_team[field]:
-                raise ApiError(f"Pretix team {city.team_name!r} did not reconcile field {field!r}")
-        for field in (
-            "limit_event_permissions",
-            "limit_organizer_permissions",
-            "limit_events",
-        ):
-            actual_values = actual_team.get(field)
-            if not isinstance(actual_values, list) or set(actual_values) != set(desired_team[field]):
-                raise ApiError(f"Pretix team {city.team_name!r} did not reconcile field {field!r}")
-        log_resource_status(city.team_name, desired_team, previous_team)
-
-    props_resp = pretix_req("GET", "event_meta_properties")
-    if props_resp:
-        props = props_resp.get("results", [])
-        if not any(p["name"] == "forum_topic_url" for p in props):
-            pretix_req(
-                "POST",
-                "event_meta_properties",
-                {
-                    "name": "forum_topic_url",
-                    "default": "https://forum.ansible.com/c/events/8",
-                    "choices": [],
-                },
-            )
-
-    event_ready = False
-    if not check_event_exists(TEMPLATE_SLUG):
-        logger.info("Creating new master template (%s)...", TEMPLATE_SLUG)
-        creation = pretix_req(
-            "POST",
-            "events",
-            {
-                "name": {"en": "TEMPLATE: Standard Meetup"},
-                "slug": TEMPLATE_SLUG,
-                "live": False,
-                "is_template": True,
-                "currency": "USD",
-                "date_from": "2026-12-31T18:00:00Z",
-            },
-        )
-        if creation:
-            event_ready = True
-        else:
-            logger.error("Failed to create template. Halting Pretix configuration.")
-    else:
-        logger.info("Template %r already exists.", TEMPLATE_SLUG)
-        event_ready = True
-
-    if event_ready:
-        logger.info("Enforcing strict settings on template...")
-        pretix_req(
-            "PATCH",
-            f"events/{TEMPLATE_SLUG}",
-            {"live": False, "is_template": True},
-        )
-        reconcile_pretix_event_settings(
-            TEMPLATE_SLUG,
-            {
-                "max_items_per_order": 1,
-                "invoice_address_asked": False,
-                "attendee_names_asked": True,
-                "attendee_names_required": True,
-                "attendee_emails_asked": False,
-                "name_scheme": "full",
-                "order_email_asked_twice": False,
-                "payment_term_last": None,
-                # Forum topic is the canonical event page; Pretix is the checkout
-                # flow and should not compete in search results.
-                "meta_noindex": True,
-            },
-        )
-
-        items_resp = pretix_req("GET", f"events/{TEMPLATE_SLUG}/items")
-        if items_resp and isinstance(items_resp, dict):
-            items = items_resp.get("results", [])
-            if not items:
-                logger.info("Generating standard admission ticket...")
-                item = pretix_req(
-                    "POST",
-                    f"events/{TEMPLATE_SLUG}/items",
-                    {
-                        "name": {"en": DEFAULT_ITEM_NAME},
-                        "default_price": DEFAULT_ITEM_PRICE,
-                        "active": True,
-                        "admission": True,
-                    },
-                )
-                if item and isinstance(item, dict):
-                    pretix_req(
-                        "POST",
-                        f"events/{TEMPLATE_SLUG}/quotas",
-                        {
-                            "name": DEFAULT_QUOTA_NAME,
-                            "size": 100,
-                            "items": [item["id"]],
-                        },
-                    )
+    logger.info("Reconciling Pretix staff and city teams...")
+    all_events = reconcile_pretix_teams()
+    reconcile_pretix_meta_property()
+    reconcile_pretix_template(all_events)
 
     logger.info("--- 2. DISCOURSE PROVISIONING ---")
     ensure_category_group_moderation_enabled()
