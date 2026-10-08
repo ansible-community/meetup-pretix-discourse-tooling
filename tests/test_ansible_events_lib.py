@@ -471,51 +471,61 @@ class TestProvisioningPermissions:
             ("GET", "events/template/settings", None),
         ]
 
-    def test_organiser_group_tracks_only_its_city_category(self, monkeypatch):
+    def test_city_plans_are_built_from_registered_cities(self):
         import provision_environment
 
-        responses = iter(
-            [
-                {"group": {"tracking_category_ids": []}},
-                {},
-                {"group": {"tracking_category_ids": [42]}},
-            ]
-        )
+        plans = provision_environment.build_city_forum_plans()
+
+        assert [plan.city for plan in plans] == list(provision_environment.CITIES)
+        assert plans[0].organiser_group_name == "meetup-organisers-london"
+        assert plans[0].attendee_group_name == "meetup-attendee-london"
+
+    def test_group_reconciliation_updates_tracking_with_one_read(self, monkeypatch):
+        import provision_environment
+
         requests = []
 
         def request(method, endpoint, payload=None):
             requests.append((method, endpoint, payload))
-            return next(responses)
+            if method == "GET":
+                return {"group": {"tracking_category_ids": []}}
+            if method == "PUT":
+                return {"group": {"tracking_category_ids": [42]}}
+            raise AssertionError(f"Unexpected Discourse request: {method} {endpoint}")
 
         monkeypatch.setattr(provision_environment, "discourse_req", request)
-        provision_environment.ensure_group_tracks_city_category("meetup-organisers-london", 12, 42)
-
-        assert requests[1] == (
-            "PUT",
-            "groups/12.json",
-            {"group": {"tracking_category_ids": [42]}, "update_existing_users": "true"},
+        provision_environment.reconcile_discourse_group(
+            "meetup-organisers-london",
+            12,
+            {"tracking_category_ids": [42]},
         )
 
-    def test_organiser_group_tracking_default_is_not_rewritten_when_already_set(self, monkeypatch):
+        assert requests == [
+            ("GET", "groups/by-id/12.json", None),
+            (
+                "PUT",
+                "groups/12.json",
+                {"group": {"tracking_category_ids": [42]}, "update_existing_users": "true"},
+            ),
+        ]
+
+    def test_group_reconciliation_noop_uses_one_read(self, monkeypatch):
         import provision_environment
 
-        responses = iter(
-            [
-                {"group": {"tracking_category_ids": [42]}},
-                {"group": {"tracking_category_ids": [42]}},
-            ]
-        )
         requests = []
 
         def request(method, endpoint, payload=None):
             requests.append((method, endpoint, payload))
-            return next(responses)
+            return {"group": {"tracking_category_ids": [42]}}
 
         monkeypatch.setattr(provision_environment, "discourse_req", request)
-        provision_environment.ensure_group_tracks_city_category("meetup-organisers-london", 12, 42)
+        provision_environment.reconcile_discourse_group(
+            "meetup-organisers-london",
+            12,
+            {"tracking_category_ids": [42]},
+        )
 
-        assert len(requests) == 2
-        assert all(method == "GET" for method, _, _ in requests)
+        assert requests == [("GET", "groups/by-id/12.json", None)]
 
     def test_resource_status_lists_changed_and_already_correct_fields(self, caplog):
         import logging
@@ -547,57 +557,61 @@ class TestProvisioningPermissions:
 
     def test_city_category_uses_reply_only_default_and_city_organiser_access(self, monkeypatch):
         import provision_environment
+        from ansible_events_lib import get_city
 
         current = {
             "id": 51,
             "name": "London",
-            "parent_category_id": 8,
-            "color": "EE0000",
+            "parent_category_id": provision_environment.DISCOURSE_PARENT_CATEGORY_ID,
+            "color": "000000",
             "text_color": "FFFFFF",
-            "description": (
-                "Ansible Community Meetup events in London. Free, in-person meetups for automation enthusiasts — "
-                "talks, networking, and community. RSVP to upcoming Ansible Meetup London events below."
-            ),
-            "moderating_group_ids": [9],
+            "description": "Old description",
+            "moderating_group_ids": [],
             "group_permissions": [{"group_id": 0, "group_name": "everyone", "permission_type": 1}],
         }
-        update_payloads = []
+        plan = provision_environment.CityForumPlan(city=get_city("london"), organiser_group_id=9, category_id=51)
+        requests = []
 
         def request(method, endpoint, payload=None):
+            requests.append((method, endpoint, payload))
             if method == "GET" and endpoint == "c/51/show.json":
                 return {"category": current.copy()}
             if method == "PUT" and endpoint == "categories/51.json":
-                update_payloads.append(payload)
                 current.update({key: value for key, value in payload.items() if key != "permissions"})
-                current["group_permissions"] = [
-                    {
-                        "group_id": 0 if name == "everyone" else 9,
-                        "group_name": name,
-                        "permission_type": permission,
-                    }
-                    for name, permission in payload["permissions"].items()
-                ]
+                if "permissions" in payload:
+                    current["group_permissions"] = [
+                        {
+                            "group_id": 0 if name == "everyone" else 9,
+                            "group_name": name,
+                            "permission_type": permission,
+                        }
+                        for name, permission in payload["permissions"].items()
+                    ]
                 return {"category": current.copy()}
             raise AssertionError(f"Unexpected Discourse request: {method} {endpoint}")
 
         monkeypatch.setattr(provision_environment, "discourse_req", request)
-        monkeypatch.setattr(provision_environment, "discourse_categories", lambda: [current.copy()])
-        monkeypatch.setattr(provision_environment, "discourse_city_category_id", lambda city_name: 51)
+        provision_environment.reconcile_city_category_access(
+            [current.copy()],
+            {51: plan},
+            {"meetup-organisers-london": {"id": 9}},
+        )
 
-        provision_environment.ensure_discourse_category("London", "meetup-organisers-london", 9)
-
-        assert len(update_payloads) == 1
-        assert update_payloads[0]["permissions"] == {
+        update = next(payload for method, _, payload in requests if method == "PUT")
+        assert update["permissions"] == {
             "everyone": provision_environment.CATEGORY_PERMISSION_CREATE_POST,
             "meetup-organisers-london": provision_environment.CATEGORY_PERMISSION_FULL,
         }
+        assert update["moderating_group_ids"] == [9]
+        assert sum(method == "GET" for method, _, _ in requests) == 2
 
     def test_organizer_access_is_removed_everywhere_except_own_subcategory(self, monkeypatch):
         import provision_environment
+        from ansible_events_lib import get_city
 
         categories = [
-            {"id": 11, "subcategory_list": []},
-            {"id": 12, "subcategory_list": []},
+            {"id": 11},
+            {"id": 12},
         ]
         current = {
             11: {
@@ -605,6 +619,7 @@ class TestProvisioningPermissions:
                 "group_permissions": [
                     {"group_id": 0, "group_name": "everyone", "permission_type": 2},
                     {"group_id": 9, "group_name": "meetup-organisers-london", "permission_type": 1},
+                    {"group_id": 10, "group_name": "meetup-organisers-barcelona", "permission_type": 1},
                 ],
             },
             12: {
@@ -612,16 +627,16 @@ class TestProvisioningPermissions:
                 "group_permissions": [
                     {"group_id": 0, "group_name": "everyone", "permission_type": 2},
                     {"group_id": 9, "group_name": "meetup-organisers-london", "permission_type": 1},
+                    {"group_id": 10, "group_name": "meetup-organisers-barcelona", "permission_type": 1},
                 ],
             },
         }
+        london = provision_environment.CityForumPlan(city=get_city("london"), organiser_group_id=9, category_id=11)
 
         def request(method, endpoint, payload=None):
-            if method == "GET" and endpoint == "categories.json":
-                return {"category_list": {"categories": categories}}
             if method == "GET" and endpoint.startswith("c/") and endpoint.endswith("/show.json"):
                 category_id = int(endpoint.split("/")[1])
-                return {"category": current[category_id]}
+                return {"category": current[category_id].copy()}
             if method == "PUT" and endpoint.startswith("categories/"):
                 category_id = int(endpoint.split("/")[1].split(".")[0])
                 current[category_id].update({key: value for key, value in payload.items() if key != "permissions"})
@@ -638,17 +653,14 @@ class TestProvisioningPermissions:
             raise AssertionError(f"Unexpected Discourse request: {method} {endpoint}")
 
         monkeypatch.setattr(provision_environment, "discourse_req", request)
-        monkeypatch.setattr(provision_environment, "discourse_categories", lambda: categories)
-        monkeypatch.setattr(
-            provision_environment,
-            "list_discourse_groups",
-            lambda: [
-                {"id": 9, "name": "meetup-organisers-london"},
-                {"id": 10, "name": "meetup-organisers-barcelona"},
-            ],
+        provision_environment.reconcile_city_category_access(
+            categories,
+            {11: london},
+            {
+                "meetup-organisers-london": {"id": 9},
+                "meetup-organisers-barcelona": {"id": 10},
+            },
         )
-
-        provision_environment.reconcile_organiser_category_access({11: ("meetup-organisers-london", 9)})
 
         assert current[11]["moderating_group_ids"] == [9]
         assert current[11]["group_permissions"] == [
