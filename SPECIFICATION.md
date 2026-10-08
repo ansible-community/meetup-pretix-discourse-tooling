@@ -126,6 +126,8 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 | Slug | `ansible-meetup-template-v6` |
 | Name | `TEMPLATE: Standard Meetup` |
 | Live | `False` (never published) |
+| Public listing | `False` |
+| Timezone | `UTC` |
 | Currency | `USD` |
 | Plugins | Inherit Pretix's configured default plugins; provisioning does not override the plugin set |
 | Default Item | `RSVP` — price `0.00`, `active: True`, `admission: True` |
@@ -186,11 +188,12 @@ For each city in the `CITIES` registry:
      - Payload: `{"name": "forum_topic_url", "default": "https://forum.ansible.com/c/events/8", "choices": []}`
 
 6. Create or reconcile template event:
-   - `GET /api/v1/organizers/ansible-meetups/events/ansible-meetup-template-v6/` (check existence via status code)
-   - If 404:
+   - Find the exact template slug in the paginated event list.
+   - If absent:
      - `POST /api/v1/organizers/ansible-meetups/events/`
-     - Payload: `{"name": {"en": "TEMPLATE: Standard Meetup"}, "slug": "ansible-meetup-template-v6", "live": false, "is_template": true, "currency": "USD", "date_from": "2026-12-31T18:00:00Z", "plugins": ["pretix.plugins.sendmail", "pretix.plugins.ticketoutputpdf"]}`
-   - On every run, force `live=false`, `is_template=true`, and the desired plugin list.
+     - Payload sets the name, slug, `live=false`, `is_public=false`, `timezone="UTC"`, currency, and start date.
+   - On every run, reconcile `live=false`, `is_public=false`, and `timezone="UTC"`.
+   - Do not send or verify `is_template`: Pretix's public event API does not expose that field. The private event is used as the clone source by its stable slug through `clone_from`.
 
 7. Enforce template settings:
    - `PATCH /api/v1/organizers/ansible-meetups/events/ansible-meetup-template-v6/settings/`

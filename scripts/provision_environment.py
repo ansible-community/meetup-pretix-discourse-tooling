@@ -180,6 +180,7 @@ FIELD_LABELS: dict[str, str] = {
     "limit_organizer_permissions": "organizer permissions",
     "limit_events": "event scope",
     "require_2fa": "2FA required",
+    "is_public": "public listing",
 }
 UNORDERED_FIELDS: set[str] = {
     "limit_event_permissions",
@@ -441,11 +442,13 @@ def reconcile_template_ticket() -> None:
 
 
 def reconcile_pretix_template(events: list[dict[str, Any]]) -> None:
-    """Create or reconcile the private template and its settings/ticket configuration."""
+    """Create or reconcile the private clone source and its settings/ticket configuration."""
     matches = [event for event in events if event.get("slug") == TEMPLATE_SLUG]
     if len(matches) > 1:
         raise ApiError(f"Pretix has multiple events named {TEMPLATE_SLUG!r}")
-    desired_event = {"live": False, "is_template": True, "timezone": "UTC"}
+    # is_template is not part of Pretix's public event API. The API can clone
+    # from any event by slug, so the stable slug identifies this private source.
+    desired_event = {"live": False, "is_public": False, "timezone": "UTC"}
     if matches:
         event = matches[0]
         if not all(field in event for field in desired_event):

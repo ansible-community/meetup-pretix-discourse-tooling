@@ -503,6 +503,50 @@ class TestProvisioningPermissions:
             ("GET", "events/template/settings", None),
         ]
 
+    def test_template_creation_uses_only_public_event_api_fields(self, monkeypatch):
+        import provision_environment
+
+        requests = []
+
+        def request(method, endpoint, payload=None):
+            requests.append((method, endpoint, payload))
+            return {**payload, "slug": provision_environment.TEMPLATE_SLUG}
+
+        monkeypatch.setattr(provision_environment, "pretix_req", request)
+        monkeypatch.setattr(provision_environment, "reconcile_pretix_event_settings", lambda *_: None)
+        monkeypatch.setattr(provision_environment, "reconcile_template_ticket", lambda: None)
+
+        provision_environment.reconcile_pretix_template([])
+
+        assert len(requests) == 1
+        method, endpoint, payload = requests[0]
+        assert (method, endpoint) == ("POST", "events")
+        assert payload["live"] is False
+        assert payload["is_public"] is False
+        assert payload["timezone"] == "UTC"
+        assert "is_template" not in payload
+
+    def test_existing_template_does_not_require_api_unsupported_marker(self, monkeypatch):
+        import provision_environment
+
+        def unexpected_request(*_args, **_kwargs):
+            raise AssertionError("Matching template should not require a detail read or patch")
+
+        monkeypatch.setattr(provision_environment, "pretix_req", unexpected_request)
+        monkeypatch.setattr(provision_environment, "reconcile_pretix_event_settings", lambda *_: None)
+        monkeypatch.setattr(provision_environment, "reconcile_template_ticket", lambda: None)
+
+        provision_environment.reconcile_pretix_template(
+            [
+                {
+                    "slug": provision_environment.TEMPLATE_SLUG,
+                    "live": False,
+                    "is_public": False,
+                    "timezone": "UTC",
+                }
+            ]
+        )
+
     def test_pretix_teams_require_two_factor_authentication(self, monkeypatch):
         import provision_environment
 

@@ -186,7 +186,7 @@ This script reconciles the infrastructure in Discourse and Pretix to the configu
 
 | Resource | Example | Purpose |
 |----------|---------|---------|
-| Organizer settings | Contact email, UTC timezone | Global configuration |
+| Organizer settings | Branding, legal URLs, homepage text | Global configuration |
 | Meta property | `forum_topic_url` | Links events to forum topics |
 | Template event | `ansible-meetup-template-v6` | Master template for cloning |
 | RSVP item + quota | "RSVP" at $0.00, 100 capacity | Default ticket configuration |
@@ -202,7 +202,7 @@ uv run python scripts/provision_environment.py
 
 1. Visit Discourse admin → Groups — verify `meetup-organisers-{city}` and `meetup-attendee-{city}` groups exist. Organiser groups and their member lists are visible to group owners only (level 4), have no group owners, public admission, membership requests, or automatic email-domain membership, and track their own city subcategory by default. Attendee groups and their member lists are staff-only (level 3). Forum admins manage organiser membership. The Forum has no `meetup-admin` or `meetup-staff` groups.
 2. In Discourse admin → Settings, verify category group moderation is enabled. Visit each city subcategory and confirm `everyone` has create/reply/see access (level 2), while only that city's `meetup-organisers-{city}` group has full access and moderator status. Attendee groups have no category permissions. Confirm organiser groups have no explicit permissions or moderator assignments on other categories. Event topics are created directly in that city subcategory; other forum users can reply but cannot start topics.
-3. Visit Pretix admin → Events — verify the template event `ansible-meetup-template-v6` exists (not published).
+3. Visit Pretix admin → Events — verify `ansible-meetup-template-v6` exists, is unpublished, and is excluded from the organizer's public event list. Provisioning uses its stable slug as the `clone_from` source; Pretix's public event API does not expose its UI template marker.
 4. Visit Pretix admin → Teams — verify city teams have only their city's events, and `Ansible Meetup Staff` has all meetup events. Pretix admins alone add and remove members of the staff team.
 
 ### When to re-run
