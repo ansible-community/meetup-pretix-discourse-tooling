@@ -529,9 +529,10 @@ def reconcile_discourse_group(
     owners_changed = False
     if require_no_owners:
         owners_response = discourse_req("GET", f"groups/{name}/members.json")
-        owners = owners_response.get("owners")
-        if not isinstance(owners, list):
+        owners_value = owners_response.get("owners")
+        if not isinstance(owners_value, list):
             raise ApiError(f"Could not read owners for Discourse group {name!r}")
+        owners = owners_value
         owners_changed = bool(owners)
 
     changes = {
@@ -565,7 +566,10 @@ def reconcile_discourse_group(
             raise ApiError(f"Discourse group {name!r} did not reconcile to the requested settings")
         if require_no_owners:
             owners_response = discourse_req("GET", f"groups/{name}/members.json")
-            owners = owners_response.get("owners")
+            owners_value = owners_response.get("owners")
+            if not isinstance(owners_value, list):
+                raise ApiError(f"Could not verify owners for Discourse group {name!r}")
+            owners = owners_value
     elif any(
         field not in before or not same_configuration_value(field, before[field], value)
         for field, value in desired.items()

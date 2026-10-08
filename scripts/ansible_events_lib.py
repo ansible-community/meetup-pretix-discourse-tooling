@@ -284,6 +284,7 @@ def discourse_req(
         "Api-Username": run_as or DISCOURSE_API_USER,
         "Content-Type": "application/json",
     }
+    resp: httpx.Response | None = None
     for attempt in range(DISCOURSE_429_MAX_RETRIES + 1):
         try:
             resp = httpx.request(method, url, json=payload, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
@@ -322,6 +323,8 @@ def discourse_req(
         )
         time.sleep(delay)
 
+    if resp is None:
+        raise ApiError(f"Discourse {method} {endpoint} did not make a request")
     if resp.status_code not in (200, 201, 204):
         raise ApiError(f"Discourse {method} {endpoint} failed: {resp.status_code} {resp.text[:200]}")
     if not resp.text:
