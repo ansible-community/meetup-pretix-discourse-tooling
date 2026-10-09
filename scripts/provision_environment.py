@@ -143,7 +143,11 @@ def list_discourse_groups() -> list[dict]:
             raise ApiError("Discourse groups response is missing groups")
         if any(not isinstance(group, dict) for group in batch):
             raise ApiError("Discourse groups response contains an invalid group")
-        groups.extend(batch)
+        groups.extend(
+            group
+            for group in batch
+            if isinstance(group.get("name"), str) and "meetup" in group["name"].casefold()
+        )
         if not batch:
             return groups
         page += 1

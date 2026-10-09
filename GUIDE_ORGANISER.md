@@ -36,6 +36,8 @@ The Community Team also maintains CLI helpers for importing legacy Meetup Pro gr
 
 Everyone on the forum can read and reply to event topics. Only that city's organiser group can start new topics, so new event topics are created by the Community Team in the matching city subcategory.
 
+The Community Team's provisioning tool limits its forum-wide permission cleanup to groups with `meetup` in their name.
+
 ### What the Community Team handles vs. what you handle
 
 | Community Team does | You do |
