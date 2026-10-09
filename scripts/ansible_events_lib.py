@@ -409,8 +409,3 @@ def check_event_exists(slug: str) -> bool:
     if resp.status_code == 200:
         return True
     raise ApiError(f"Pretix check_event_exists {slug} failed: {resp.status_code} {resp.text[:200]}")
-
-
-def strip_discourse_block(markdown: str) -> str:
-    """Strip Discourse-only content above the first --- separator."""
-    return markdown.split("---", 1)[1].strip() if "---" in markdown else markdown

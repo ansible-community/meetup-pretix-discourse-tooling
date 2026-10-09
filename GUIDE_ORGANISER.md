@@ -96,11 +96,7 @@ To update your event, edit the forum topic:
 - **Agenda** — Replace the `*Open for proposals*` rows with confirmed speakers and topics.
 - **Description** — Add extra information: parking, accessibility, food/drink, sponsor details.
 
-**Important:** Don't delete the `---` horizontal rule near the top of the post. Everything above it is the calendar widget (handled automatically). Everything below it is your event content that syncs to the ticketing page.
-
-### Syncing changes to the ticketing page
-
-Your forum edits are the source of truth. The Community Team can run a sync command that pulls your latest forum content into the Pretix ticketing page. If you make a major update (like adding the venue), let them know so they can sync it.
+**Important:** Don't delete the `---` horizontal rule near the top of the post. It separates the calendar widget from your event content. The forum topic is the event information page; changes you make here are not copied to Pretix. Pretix keeps a link back to this topic, and the RSVP link takes attendees to Pretix.
 
 ---
 

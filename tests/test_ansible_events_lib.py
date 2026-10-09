@@ -18,7 +18,6 @@ from ansible_events_lib import (
     PRETIX_URL,
     CityInfo,
     get_city,
-    strip_discourse_block,
 )
 
 
@@ -236,36 +235,6 @@ class TestCityInfoDerivedProperties:
     def test_team_name_preserves_case(self) -> None:
         city = CityInfo(region="Europe", country="UK", slug="faketown", city="FakeTown", timezone="Europe/London")
         assert city.team_name == f"{ORGANISER_TEAM_PREFIX} - FakeTown"
-
-
-class TestStripDiscourseBlock:
-    def test_strips_above_separator(self) -> None:
-        md = "[event]...[/event]\n\n---\n\n## Welcome"
-        assert strip_discourse_block(md) == "## Welcome"
-
-    def test_no_separator_returns_full_content(self) -> None:
-        md = "## Welcome to the event"
-        assert strip_discourse_block(md) == md
-
-    def test_multiple_separators_splits_on_first(self) -> None:
-        md = "block1\n---\ncontent\n---\nmore"
-        assert strip_discourse_block(md) == "content\n---\nmore"
-
-    def test_empty_above_separator(self) -> None:
-        md = "---\ncontent"
-        assert strip_discourse_block(md) == "content"
-
-    def test_empty_below_separator(self) -> None:
-        md = "block\n---\n"
-        assert strip_discourse_block(md) == ""
-
-    def test_only_separator(self) -> None:
-        md = "---"
-        assert strip_discourse_block(md) == ""
-
-    def test_whitespace_stripped(self) -> None:
-        md = "block\n---\n  \n  content  \n  "
-        assert strip_discourse_block(md) == "content"
 
 
 class TestPretixApiContract:

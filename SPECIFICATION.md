@@ -267,21 +267,15 @@ For each city in the `CITIES` registry:
 
 **Phase 3: Update Discourse Post**
 
-- Replace placeholder URL in event block: `url="https://link-pending.local"` → `url="{pretix_public_url}"`
+- Replace placeholder URL in event block: `url="https://link-pending.local"` → `url="{forum_url}"`
 - Replace RSVP placeholder: `*[RSVP link pending...]*` → `**[Click here to RSVP via Pretix]({pretix_public_url})**`
+- Replace the share placeholder with the forum topic URL and set the JSON-LD event URL to the forum topic and its Offer URL to the Pretix event.
 - `PUT /posts/{post_id}.json`
 - Payload: `{"post": {"raw": final_markdown}}`
 - Headers: `Api-Username: {organiser}` (impersonation)
 - `ApiError` aborts the workflow; request failures do not become false success values.
 
-**Phase 4: Sync to Pretix Frontpage**
-
-- Split `final_markdown` on `---` (first occurrence). Take everything after the separator. Strip whitespace.
-- If no `---` found, use the full markdown as fallback.
-- `PATCH /api/v1/organizers/ansible-meetups/events/{slug}/settings/`
-- Payload: `{"frontpage_text": {"en": pretix_content}}`
-
-**Phase 5: Adjust Quota**
+**Phase 4: Adjust Quota**
 
 - `GET /api/v1/organizers/ansible-meetups/events/{slug}/quotas/`
 - If quota exists (inherited from template): `PATCH .../quotas/{id}/` → `{"size": capacity}`
@@ -290,11 +284,11 @@ For each city in the `CITIES` registry:
   - If no items: create one (`POST .../items/` → `{"name": {"en": "RSVP"}, "default_price": "0.00", "active": true, "admission": true}`)
   - `POST .../quotas/` → `{"name": "Capacity", "size": capacity, "items": [item_id]}`
 
-**Phase 6: Publish**
+**Phase 5: Publish**
 
 - `PATCH /api/v1/organizers/ansible-meetups/events/{slug}/` → `{"live": true}`
 
-**Phase 7: Assign Team**
+**Phase 6: Assign Team**
 
 - Fetch all teams using `pretix_list_all("teams")` (paginated).
 - Find team named `Ansible Meetup Organisers - {City}`.
@@ -302,49 +296,12 @@ For each city in the `CITIES` registry:
 - Event creation adds its new slug to the matching team's list; the provisioner later recomputes that list from event slugs.
 - `PATCH /api/v1/organizers/ansible-meetups/teams/{id}/` → `{"limit_events": [...], "all_event_permissions": false, "limit_event_permissions": ["event.orders:read", "event.orders:checkin"]}`
 
-**Phase 8: Social Media Copy**
+**Phase 7: Social Media Copy**
 
 - Print to stdout (not file, not API).
 - See Section 8 for full specification.
 
-### 4.3 Content Sync (`pretix-sync-event.py`)
-
-**Purpose:** One-way sync from Discourse (source of truth) to Pretix (frontpage display).
-
-**CLI Arguments:**
-
-| Argument | Required | Validation |
-|---|---|---|
-| `--slug` | Yes | `^[a-z0-9\-]+$` (lowercase alphanumerics and hyphens) |
-
-**Steps:**
-
-1. `GET /api/v1/organizers/ansible-meetups/events/{slug}/`
-   - Validate response is a dict. Extract `meta_data.forum_topic_url`.
-   - If missing, log error and abort.
-
-2. Parse topic ID from URL using `urlparse`:
-   - Extract path, strip slashes, split on `/`, take last segment.
-   - Validate segment is numeric (`isdigit()`). Abort if not.
-
-3. `GET /t/{topic_id}.json` (Discourse)
-   - Extract `title` and the first post's ID from `post_stream.posts[0].id`.
-   - Guard against empty posts list.
-
-4. `GET /posts/{post_id}.json` (Discourse)
-   - Extract `raw` field (original markdown of the first post).
-
-5. Strip Discourse-only content:
-   - Split raw markdown on `---` (first occurrence). Take everything after the separator. Strip whitespace.
-   - If no `---` found, use the full markdown as fallback.
-
-6. `PATCH /api/v1/organizers/ansible-meetups/events/{slug}/` → `{"name": {"en": title}}`
-
-7. `PATCH /api/v1/organizers/ansible-meetups/events/{slug}/settings/` → `{"frontpage_text": {"en": pretix_content}}`
-
-This now matches the behavior of `create_event.py` — both scripts strip the Discourse `[event]` BBCode block above the `---` separator and send only clean markdown to Pretix.
-
-### 4.4 SSO Authentication (`discourse-connect-mvp.py`)
+### 4.3 SSO Authentication (`discourse-connect-mvp.py`)
 
 **Purpose:** Development/test toolkit for the DiscourseConnect SSO flow. NOT a production service.
 
@@ -456,7 +413,7 @@ Trailing slash rules:
 | `GET` | `events/{slug}` | Check event existence / fetch event |
 | `POST` | `events` | Create event (or clone from template) |
 | `PATCH` | `events/{slug}` | Update event (publish, set name) |
-| `PATCH` | `events/{slug}/settings` | Update event settings (frontpage, checkout) |
+| `PATCH` | `events/{slug}/settings` | Update template checkout settings |
 | `GET` | `events/{slug}/items` | List ticket items |
 | `POST` | `events/{slug}/items` | Create ticket item |
 | `GET` | `events/{slug}/quotas` | List quotas |
@@ -495,8 +452,6 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 | `POST` | `categories.json` | Create regional subcategory |
 | `POST` | `posts.json` | Create forum topic |
 | `PUT` | `posts/{id}.json` | Update post content |
-| `GET` | `posts/{id}.json` | Fetch single post raw markdown (for sync) |
-| `GET` | `t/{topic_id}.json` | Fetch topic data (for post ID extraction) |
 
 **SSO Toolkit Additional Endpoints (urllib, not httpx):**
 
@@ -514,11 +469,9 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 | Input | Rule | Enforcement Point |
 |---|---|---|
 | `--city` | `^[a-z]+$`, registered in `CITIES` | Reject before API calls or mutations |
-| `--slug` | `^[a-z0-9\-]+$` (lowercase alphanumerics, hyphens) | `pretix-sync-event.py` — return on mismatch |
 | `--date` | Valid ISO-8601 | `datetime.fromisoformat()` — raises `ValueError` |
 | `--capacity` | Integer | `argparse type=int` — rejects non-integers |
 | `--organiser` | Discourse username | Membership-checked, then used as the Discourse `Api-Username` |
-| Topic ID (from URL) | Numeric (`isdigit()`) | `pretix-sync-event.py` — return on mismatch |
 
 ### XSS Prevention
 
@@ -552,10 +505,9 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 
 ### Known Accepted Risks
 
-1. **Markdown relay:** `pretix-sync-event.py` copies raw Discourse markdown to Pretix. A malicious organizer could inject markdown that renders differently in Pretix than in Discourse. Mitigated by only trusted organizers having edit access to event topics.
-2. **`run_as` scope:** `create_event.py --organiser` impersonates the selected Discourse user when posting. Membership is validated first; API key scope remains important.
-3. **Flask secret key:** Default dev-only key is committed to source. Production deployment requires `FLASK_SECRET` env var override.
-4. **`/debug` endpoint:** Exposes last user's full SSO profile. No authentication. Acceptable for localhost-only dev tool.
+1. **`run_as` scope:** `create_event.py --organiser` impersonates the selected Discourse user when posting. Membership is validated first; API key scope remains important.
+2. **Flask secret key:** Default dev-only key is committed to source. Production deployment requires `FLASK_SECRET` env var override.
+3. **`/debug` endpoint:** Exposes last user's full SSO profile. No authentication. Acceptable for localhost-only dev tool.
 
 ---
 
@@ -563,7 +515,7 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 
 The forum post created by `create_event.py` has two distinct zones separated by a horizontal rule (`---`):
 
-**Zone 1: Discourse-Only (NOT synced to Pretix)**
+**Zone 1: Event Widget**
 
 ```markdown
 [event start="{start_str}" end="{end_str}" timezone="{event_timezone}" minimal="true" name="{event_name}" url="https://link-pending.local"]
@@ -572,9 +524,9 @@ The forum post created by `create_event.py` has two distinct zones separated by 
 
 - `minimal="true"`: Shows compact event widget without Interested/Attending buttons.
 - No `status="public"`: Prevents RSVP buttons (RSVP is handled by Pretix).
-- `url` is initially a placeholder; replaced with Pretix URL in Phase 3.
+- `url` is initially a placeholder; replaced with the forum topic URL in Phase 3.
 
-**Zone 2: Synced Content (written to Pretix frontpage)**
+**Zone 2: Forum Event Content**
 
 ```markdown
 ## Welcome to Ansible Meetup {City}!
@@ -596,7 +548,7 @@ Join us for an evening of automation, collaboration, and community! ...
 *(Want to give a talk? Reply below with your proposal!)*
 
 ### RSVP
-*[RSVP link pending...]*
+**[Click here to RSVP via Pretix]({pretix_public_url})**
 **Please note:** To help us manage venue capacity ...
 
 ### Connect
@@ -607,12 +559,10 @@ Have questions? Want to propose a talk? ...
 
 | Placeholder | Replacement |
 |---|---|
-| `url="https://link-pending.local"` | `url="{pretix_public_url}"` |
-| `*[RSVP link pending...]*` | `**[Click here to RSVP via Pretix]({pretix_public_url})**` |
+| `url="https://link-pending.local"` | `url="{forum_url}"` |
+| RSVP and share placeholders | Link to the Pretix event and forum topic, respectively |
 
-**Sync to Pretix:**
-
-`final_markdown.split("---", 1)[1].strip()` — takes everything after the first `---`, stripping whitespace. The `[event]` BBCode block is excluded because it does not render outside Discourse.
+The forum post remains the event content source. Pretix stores `forum_topic_url` as a backlink and does not receive a copy of the forum content.
 
 ---
 

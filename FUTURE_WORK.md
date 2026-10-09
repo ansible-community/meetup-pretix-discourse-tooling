@@ -703,17 +703,10 @@ Organised by attendee lifecycle stage. Each item has a consistent structure: des
 | HIGH | XSS in 403 error page — HTML-escaped |
 | HIGH | SSO nonce bypass — empty nonces rejected |
 | MEDIUM | PII in logs — response bodies truncated to 200 chars |
-| MEDIUM | CLI input validation — `--city` regex, `--slug` alphanumeric |
-| MEDIUM | URL parsing — `urlparse` + numeric validation |
+| MEDIUM | CLI input validation — `--city` regex |
 | MEDIUM | Organiser validation — group membership checked before impersonation |
 
 ## Open (Accepted Risk)
-
-**Markdown relay (Discourse → Pretix)**
-
-* **Risk:** `pretix-sync-event.py` copies raw markdown to Pretix. A malicious organiser could inject markdown that renders dangerously in Pretix's renderer.
-* **Mitigation:** Only trusted organisers (verified group members) can edit event content.
-* **Future:** Validate markdown against a safe-element allowlist before writing to Pretix.
 
 **SSO test toolkit**
 

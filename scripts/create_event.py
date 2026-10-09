@@ -33,7 +33,6 @@ from ansible_events_lib import (
     pretix_list_all,
     pretix_req,
     run_cli,
-    strip_discourse_block,
 )
 
 
@@ -347,7 +346,7 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
     pretix_public_url = f"{PRETIX_URL}/{ORGANIZER_SLUG}/{final_slug}/"
     logger.info("Pretix event created: %s", pretix_public_url)
 
-    logger.info("Updating Discourse post with Pretix URL...")
+    logger.info("Updating Discourse post with forum and RSVP links...")
 
     jsonld["url"] = forum_url
     offers["url"] = pretix_public_url
@@ -356,7 +355,7 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
     final_markdown = (
         initial_markdown.replace(
             'url="https://link-pending.local"',
-            f'url="{pretix_public_url}"',
+            f'url="{forum_url}"',
         )
         .replace(
             "*[RSVP link pending...]*",
@@ -376,10 +375,6 @@ Questions? Talk proposals? Need a ride? Reply below — this topic is your space
     )
 
     discourse_req("PUT", f"posts/{post_id}.json", {"post": {"raw": final_markdown}}, run_as=args.organiser)
-
-    logger.info("Syncing description to Pretix frontpage...")
-    pretix_content = strip_discourse_block(final_markdown)
-    pretix_req("PATCH", f"events/{final_slug}/settings", {"frontpage_text": {"en": pretix_content}})
 
     logger.info("Adjusting venue capacity to %d...", args.capacity)
     quotas = pretix_req("GET", f"events/{final_slug}/quotas")

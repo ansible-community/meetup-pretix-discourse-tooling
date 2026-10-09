@@ -1,6 +1,6 @@
 # Engineering Operations Guide
 
-This guide is for the Ansible Community Team engineers who run the event provisioning tooling. It covers every operation from initial setup to creating events, syncing content, and adding new cities and organisers.
+This guide is for the Ansible Community Team engineers who run the event provisioning tooling. It covers initial setup, event creation, and adding new cities and organisers.
 
 ---
 
@@ -258,11 +258,10 @@ uv run python scripts/create_event.py \
 2. **Create Discourse topic** — Posts a forum topic on behalf of the organiser with event details, agenda table, share section, and RSVP placeholder.
 3. **Create Pretix event** — Clones the master template with the city's timezone, links to the forum topic.
 4. **Update Discourse post** — Replaces placeholder URLs with the real Pretix RSVP link and share link.
-5. **Sync to Pretix** — Copies the markdown content (below the `---` separator) to the Pretix frontpage.
-6. **Set quota** — Adjusts venue capacity to the specified value.
-7. **Publish** — Makes the Pretix event live.
-8. **Assign team** — Adds the event to the city's organiser team (with pagination-safe read-modify-write).
-9. **Social media copy** — Prints ready-to-paste text for X, Bluesky, Mastodon, LinkedIn, Reddit, and Hacker News.
+5. **Set quota** — Adjusts venue capacity to the specified value.
+6. **Publish** — Makes the Pretix event live.
+7. **Assign team** — Adds the event to the city's organiser team (with pagination-safe read-modify-write).
+8. **Social media copy** — Prints ready-to-paste text for X, Bluesky, Mastodon, LinkedIn, Reddit, and Hacker News.
 
 ### Example output
 
@@ -287,31 +286,6 @@ SOCIAL MEDIA COPY (ready to paste)
 The script verifies the city, organiser, template, team, and event state before creating resources. Pretix lookup failures stop the run; only a confirmed `404` means the event is absent. If Pretix event creation fails after the Discourse topic was created, the script attempts to delete the topic. If cleanup also fails, remove it manually before retrying.
 
 ---
-
-## Syncing Content
-
-**Script:** `scripts/pretix-sync-event.py`
-
-When an organiser updates their forum post (e.g., adds speakers, changes venue), use this script to push the changes to the Pretix event page.
-
-### Command
-
-```bash
-uv run python scripts/pretix-sync-event.py --slug london-nov-2026
-```
-
-### What it does
-
-1. Fetches the Pretix event to find the linked forum topic URL.
-2. Fetches the forum topic to get the first post ID.
-3. Fetches the post's raw markdown via the Discourse API.
-4. Strips the Discourse-specific `[event]` block (everything above the first `---` separator).
-5. Updates the Pretix event title and frontpage with the clean markdown.
-
-### When to use
-
-- After an organiser edits the venue, agenda, or speaker list on the forum.
-- Automated via cron for regular sync (future enhancement).
 
 ### Event slug format
 
@@ -555,7 +529,6 @@ Set the required environment variables (see [Prerequisites](#prerequisites)).
 |--------|---------|-------------|
 | `provision_environment.py` | Create Discourse groups/categories and Pretix template/teams | Initial setup + new cities |
 | `create_event.py` | Provision a complete meetup (forum + Pretix + social) | Each new event |
-| `pretix-sync-event.py` | Sync forum content changes to Pretix | After organiser edits the post |
 
 ### Key constants (ansible_events_lib.py)
 

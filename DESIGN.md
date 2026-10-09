@@ -35,7 +35,7 @@ This document outlines the objectives, core design decisions, and script invento
 
 ### Forum Post Structure (Content Separation)
 * Each event's Discourse topic contains a Discourse-specific `[event]` BBCode block at the top, followed by a `---` horizontal rule separator, followed by the human-readable event description.
-* When syncing content to Pretix's frontpage, only the content **below** the `---` separator is used. The `[event]` BBCode block is excluded because it does not render outside Discourse.
+* Event content stays on the Discourse topic. Pretix stores a `forum_topic_url` backlink and does not copy the topic content.
 
 ### Group Permissions (Subcategories vs. Tags)
 * **Decision:** Regional Discourse Subcategories (`Events > London`) with **Category Moderators** instead of a flat structure with Tags. Each organiser group is assigned only to its own city subcategory, and event topics are created in that same subcategory.
@@ -74,8 +74,7 @@ The integration relies on a unified suite of Python scripts that interact with t
   2. Creates the Discourse forum topic authored on behalf of the local organiser (`--organiser`) in that city's subcategory, with a Discourse Calendar `[event]` widget and a placeholder RSVP link.
   3. Clones the Pretix master template to create the ticketing event; attempts topic cleanup if event creation fails.
   4. Updates the Discourse post with the Pretix RSVP URL.
-  5. Syncs only the content below the `---` separator to Pretix's frontpage (excluding Discourse-specific BBCode).
-  6. Adjusts capacity, publishes, assigns the city's team, and generates social media copy.
+  5. Adjusts capacity, publishes, assigns the city's team, and generates social media copy.
 
 ### `pretix_discourse_auth` (Django Plugin — External)
 * **Role:** The inbound/outbound SSO engine running inside Pretix (maintained separately).
@@ -94,10 +93,6 @@ The integration relies on a unified suite of Python scripts that interact with t
   * Configures Pretix global settings and custom meta properties (`forum_topic_url`).
   * Generates the `ansible-meetup-template-v6` with strict SSO-friendly checkout rules (single name field, no duplicate email, no payment step), zero-cost ticket items, ICS attachments, and Passbook plugins.
   * Creates and reconciles regional Pretix teams (`Ansible Meetup Organisers - {City}`) to the exact event set and granular order/check-in permissions for each city. It also creates the Pretix-only `Ansible Meetup Staff` team with access to all events; Pretix admins alone manage its members.
-
-### `pretix-sync-event.py` (One-Way Data Sync)
-* **Role:** Keeps Pretix in sync with the Discourse forum (the Source of Truth).
-* **Function:** Extracts the `forum_topic_url` from a Pretix event, queries the Discourse API for the first post's raw markdown (via `GET /posts/{id}.json`), strips everything above the `---` separator to exclude the Discourse `[event]` BBCode block, and overwrites the Pretix event's frontpage description with the clean markdown. Guards against empty topic data and missing posts.
 
 ### `discourse-connect-mvp.py` (SSO Test Toolkit)
 * **Role:** Standalone Flask application for testing and debugging the DiscourseConnect SSO flow.
