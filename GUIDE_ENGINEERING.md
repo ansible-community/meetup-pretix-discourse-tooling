@@ -26,6 +26,8 @@ export DISCOURSE_API_KEY="your-discourse-api-key"     # Required — Discourse A
 
 The Discourse URL (`https://forum.ansible.com`) and API user (`system`) are hardcoded — they are the same for all deployments.
 
+The Meetup Pro export helpers share `scripts/meetup_pro_lib.py` and use the project's `httpx` dependency for Meetup OAuth and GraphQL calls.
+
 ### Installation (this tooling)
 
 ```bash

@@ -9,8 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
 import jwt
-import requests
 
 logger = logging.getLogger("meetup_export")
 
@@ -47,7 +47,7 @@ def get_access_token() -> str:
         headers={"kid": signing_key_id, "typ": "JWT", "alg": "RS256"},
     )
 
-    resp = requests.post(
+    resp = httpx.post(
         MEETUP_TOKEN_URL,
         data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": signed_jwt},
         timeout=10,
@@ -65,7 +65,7 @@ def get_access_token() -> str:
 
 def graphql(token: str, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
     """Execute a GraphQL query with rate limit handling."""
-    resp = requests.post(
+    resp = httpx.post(
         MEETUP_API_URL,
         json={"query": query, "variables": variables or {}},
         headers={"Authorization": f"Bearer {token}"},

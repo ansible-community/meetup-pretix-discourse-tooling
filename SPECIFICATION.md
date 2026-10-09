@@ -30,6 +30,8 @@ The system is operated by the Ansible Community Team via CLI scripts. Local orga
 | **Pretix** | Event ticketing, RSVP, QR codes, check-in | REST API v1 (`/api/v1/`) | Token-based (`Authorization: Token {token}`) |
 | **Discourse** | Identity (SSO), forum, group permissions, event content | REST API (`/posts.json`, `/admin/groups.json`, etc.) | Global API key (`Api-Key` + `Api-Username` headers) |
 
+The shared Meetup Pro GraphQL/OAuth client in `scripts/meetup_pro_lib.py` uses `httpx` for HTTP requests. `httpx` is the project's HTTP client dependency; the client applies a 10-second timeout to token requests and a 30-second timeout to GraphQL requests, and waits 60 seconds before retrying a rate-limited GraphQL request.
+
 ### Trust Model
 
 - Discourse is the **single source of truth** for identity. Pretix's `NativeAuthBackend` is disabled.
