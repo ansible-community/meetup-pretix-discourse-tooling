@@ -1,5 +1,5 @@
 {
   "name": "Event JSON-LD Structured Data",
-  "about_url": "https://github.com/ansible-community/discourse-pretix-luma",
+  "about_url": "https://github.com/ansible-community/meetup-pretix-discourse-tooling",
   "component": true
 }

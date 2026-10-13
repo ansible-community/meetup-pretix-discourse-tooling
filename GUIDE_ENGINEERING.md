@@ -50,6 +50,8 @@ bash lint.sh                     # All checks should pass
 
 A theme component injects `schema.org/Event` JSON-LD structured data on forum topics that have a Discourse Event widget. This enables Google Rich Results (event cards in search).
 
+The version-controlled component source is in `discourse-theme/event-jsonld/`; its metadata links back to this repository.
+
 ### Installation (one-time, Discourse admin)
 
 1. Go to `forum.ansible.com` → Admin → Appearance → Themes → Components

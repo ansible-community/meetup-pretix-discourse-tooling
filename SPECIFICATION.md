@@ -556,6 +556,7 @@ X and Bluesky include a fallback mechanism: if the primary text exceeds the char
 - **Package manager:** uv (with `uv.lock` committed).
 - **Python:** `>=3.13`.
 - **CLI layout:** Runnable project commands live under `scripts/`; there is no top-level scaffold entry point.
+- **Discourse theme component:** Event JSON-LD source and metadata are maintained in this repository at `discourse-theme/event-jsonld/`.
 
 ---
 
