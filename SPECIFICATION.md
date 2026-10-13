@@ -621,7 +621,7 @@ Social media copy is printed to stdout. There is no file output, clipboard integ
 
 ### Continuous Integration
 
-GitHub Actions runs the behavior tests and package build on Python 3.13 and 3.14. Static analysis runs Ruff lint and formatting checks plus Pyright on Python 3.13. The `setup-uv` action selects the Python runtime for each job.
+GitHub Actions runs the behavior tests and package build on Python 3.13 and 3.14. Static analysis runs Ruff lint and formatting checks on `scripts/` and `tests/`, plus Pyright on Python 3.13. The `setup-uv` action selects the Python runtime for each job.
 
 ### Event Duration Fixed at 3 Hours
 

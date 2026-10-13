@@ -40,8 +40,7 @@ DISCOURSE_API_KEY = os.environ.get("DISCOURSE_API_KEY")
 DISCOURSE_URL = "https://forum.ansible.com"
 DISCOURSE_API_USER = "system"
 HTTP_USER_AGENT = (
-    "Ansible-pretix-discourse-auth/0.1.0 "
-    "(+https://github.com/ansible-community/meetup-pretix-discourse-auth)"
+    "Ansible-pretix-discourse-auth/0.1.0 (+https://github.com/ansible-community/meetup-pretix-discourse-auth)"
 )
 ORGANIZER_SLUG = "ansible-meetups"
 CONTACT_EMAIL = "ansible-community-events@redhat.com"
