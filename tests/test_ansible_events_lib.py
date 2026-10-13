@@ -255,6 +255,10 @@ class TestPretixApiContract:
             allow_redirects=False,
         )
         assert client.session.headers["Api-Key"] == "secret"
+        assert client.session.headers["User-Agent"] == (
+            "Ansible-pretix-discourse-auth/0.1.0 "
+            "(+https://github.com/ansible-community/meetup-pretix-discourse-auth)"
+        )
 
     def test_discourse_request_uses_explicit_run_as_identity(self, monkeypatch):
         import ansible_events_lib

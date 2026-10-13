@@ -61,6 +61,10 @@ SSO_SECRET = os.environ["DISCOURSE_SSO_SECRET"]  # required, fails fast
 CALLBACK_URL = os.environ.get("CALLBACK_URL", "http://localhost:5000/callback")
 API_KEY = os.environ.get("DISCOURSE_API_KEY")
 API_USER = "system"
+HTTP_USER_AGENT = (
+    "Ansible-pretix-discourse-auth/0.1.0 "
+    "(+https://github.com/ansible-community/meetup-pretix-discourse-auth)"
+)
 REQUIRE_2FA = True
 ORGANIZERS_GROUP_RE = re.compile(r"^meetup-organisers-([a-z]+)$")
 MEETUP_KEYWORD = "meetup"
@@ -109,6 +113,7 @@ def api_json(path: str) -> dict[str, Any] | None:
             "Api-Key": API_KEY,
             "Api-Username": API_USER,
             "Accept": "application/json",
+            "User-Agent": HTTP_USER_AGENT,
         },
     )
     try:
