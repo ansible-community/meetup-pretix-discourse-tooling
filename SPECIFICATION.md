@@ -205,10 +205,11 @@ Provisioning runs in this order. It performs pre-flight checks and validates the
 8. Fetch the paginated Discourse group directory, retaining only groups whose name contains `meetup` (case-insensitive). Before any mutations, fail if a name in the `meetup-organisers` namespace does not match `^meetup-organisers-[a-z]+$`.
 9. Reconcile organiser group `meetup-organisers-{slug}` by exact name; set group and member-list visibility level 4 (group owners only), disable public admission and membership requests, clear automatic email-domain membership and group owners, and update its description. Forum admins manage membership.
 10. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force group and member-list visibility level 3 (staff only).
+11. Reconcile the migration tracking group `meetup-migrated-attendees` with staff-only visibility (level 3).
 
 **Phase 5: Discourse Subcategories and Access**
 
-11. For each city in the `CITIES` registry, reconcile its regional subcategory by parent and name. Set `everyone` to `create_post` (level 2: view and reply, but no new topics), and grant `full` (level 1) only to that city's organiser group. Do not grant category permissions to attendee groups; they are used for notifications. Set `moderating_group_ids` to that city's organiser group. Then remove registered organiser permissions and moderator assignments from every other category, considering only meetup-named groups. Set each organiser group's default notification level to Tracking for its own subcategory and apply that default to existing group members. Add missing city options to the Discourse user field.
+12. For each city in the `CITIES` registry, reconcile its regional subcategory by parent and name. Set `everyone` to `create_post` (level 2: view and reply, but no new topics), and grant `full` (level 1) only to that city's organiser group. Do not grant category permissions to attendee groups; they are used for notifications. Set `moderating_group_ids` to that city's organiser group. Then remove registered organiser permissions and moderator assignments from every other category, considering only meetup-named groups. Set each organiser group's default notification level to Tracking for its own subcategory and apply that default to existing group members. Add missing city options to the Discourse user field.
 
 ### 4.2 Event Creation (`create_event.py`)
 

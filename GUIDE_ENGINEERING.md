@@ -395,7 +395,7 @@ When migrating attendees from a Meetup Pro city to the forum, create invite link
 ### Prerequisites
 
 - The city must be provisioned (`provision_environment.py` has run).
-- The `meetup-migrated-from-meetup-pro` group exists (created automatically by `provision_environment.py`).
+- The `meetup-migrated-attendees` group exists (created automatically by `provision_environment.py`).
 
 ### Creating invite links (manual — Discourse admin UI)
 
@@ -408,7 +408,7 @@ For each city being migrated, create **one invite link** in Discourse:
    - **Expire after:** Never
    - **Add to groups:** select both:
      - `meetup-attendee-{city}` (subscribes them to city event notifications)
-     - `meetup-migrated-from-meetup-pro` (tracks who came from Meetup Pro)
+     - `meetup-migrated-attendees` (tracks who came from Meetup Pro)
 4. Copy the invite link
 
 **Do not add migrating attendees to `meetup-organisers-{city}`** — that group grants organiser permissions (Pretix dashboard, category moderator). Organisers are added individually after Community Engineering lead approval.
@@ -422,9 +422,9 @@ Send the invite link to the Meetup Pro group members via:
 
 ### Tracking migration progress
 
-The `meetup-migrated-from-meetup-pro` group tracks everyone who joined via a migration invite link. To check progress:
+The `meetup-migrated-attendees` group tracks everyone who joined via a migration invite link. To check progress:
 
-- Discourse admin → Groups → `meetup-migrated-from-meetup-pro` → Members
+- Discourse admin → Groups → `meetup-migrated-attendees` → Members
 - Compare the member count against the original Meetup Pro group size
 
 ### Onboarding organisers (separate process)
