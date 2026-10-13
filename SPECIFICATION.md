@@ -87,7 +87,6 @@ A frozen, slotted dataclass representing a meetup city.
 |---|---|---|---|---|
 | london | Europe | UK | London | Europe/London |
 | barcelona | Europe | Spain | Barcelona | Europe/Madrid |
-| faketown | Europe | UK | FakeTown | Europe/London |
 
 **Constraints:**
 - The registry is an immutable `tuple[CityInfo, ...]`. Slugs and display names must be unique.

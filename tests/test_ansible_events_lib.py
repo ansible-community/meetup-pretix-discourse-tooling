@@ -27,8 +27,8 @@ class TestCityInfoSlug:
         assert city.slug == "london"
 
     def test_mixed_case(self) -> None:
-        city = CityInfo(region="Europe", country="UK", slug="faketown", city="FakeTown", timezone="Europe/London")
-        assert city.slug == "faketown"
+        city = CityInfo(region="Europe", country="UK", slug="newyork", city="New York", timezone="America/New_York")
+        assert city.slug == "newyork"
 
     def test_invalid_slug_is_rejected(self) -> None:
         with pytest.raises(ValueError):
@@ -91,10 +91,8 @@ class TestGetCity:
         assert result.country == "Spain"
         assert result.timezone == "Europe/Madrid"
 
-    def test_faketown(self) -> None:
-        result = get_city("faketown")
-        assert result is not None
-        assert result.timezone == "Europe/London"
+    def test_unregistered_city_does_not_match(self) -> None:
+        assert get_city("valencia") is None
 
 
 class TestCitiesRegistry:
@@ -233,8 +231,8 @@ class TestCityInfoDerivedProperties:
         assert city.organiser_group == "meetup-organisers-newyork"
 
     def test_team_name_preserves_case(self) -> None:
-        city = CityInfo(region="Europe", country="UK", slug="faketown", city="FakeTown", timezone="Europe/London")
-        assert city.team_name == f"{ORGANISER_TEAM_PREFIX} - FakeTown"
+        city = CityInfo(region="Europe", country="Spain", slug="valencia", city="Valencia", timezone="Europe/Madrid")
+        assert city.team_name == f"{ORGANISER_TEAM_PREFIX} - Valencia"
 
 
 class TestPretixApiContract:

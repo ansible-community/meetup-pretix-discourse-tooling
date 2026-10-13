@@ -305,7 +305,6 @@ Edit `scripts/ansible_events_lib.py` and add a new `CityInfo` entry:
 CITIES: tuple[CityInfo, ...] = (
     CityInfo(region="Europe", country="UK", slug="london", city="London", timezone="Europe/London"),
     CityInfo(region="Europe", country="Spain", slug="barcelona", city="Barcelona", timezone="Europe/Madrid"),
-    CityInfo(region="Europe", country="UK", slug="faketown", city="FakeTown", timezone="Europe/London"),
     # Add new city:
     CityInfo(region="APAC", country="Japan", slug="tokyo", city="Tokyo", timezone="Asia/Tokyo"),
 )

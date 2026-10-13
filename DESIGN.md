@@ -62,7 +62,7 @@ The integration relies on a unified suite of Python scripts that interact with t
   * Standard Python logging configuration.
   * Type-annotated JSON API wrappers with `ApiError` exceptions, timeout enforcement, and fail-closed status handling.
   * `check_event_exists` distinguishes confirmed `404` from API failure.
-  * Cities registry (`CITIES`) with structured entries containing region, country, city name, and timezone for each active meetup location (currently: London, Barcelona, FakeTown).
+  * Cities registry (`CITIES`) with structured entries containing region, country, city name, and timezone for each active meetup location (currently: London and Barcelona).
   * City helper functions: `get_city` validates lowercase alphabetic slugs against the registered city list. Slug and field value are properties on `CityInfo`.
   * Shared constants: `TEMPLATE_SLUG`, `CONTACT_EMAIL`, `DISCOURSE_PARENT_CATEGORY_ID`, `ORGANIZER_SLUG`.
   * `pretix_list_all` pagination helper validates that pagination links stay within the configured Pretix organizer API before sending the API token.
