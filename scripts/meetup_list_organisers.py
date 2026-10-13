@@ -10,8 +10,8 @@ import time
 
 from meetup_pro_lib import (
     PRO_NETWORK,
+    MeetupGraphQLClient,
     get_access_token,
-    graphql,
     logger,
     pre_flight_checks,
 )
@@ -19,7 +19,7 @@ from meetup_pro_lib import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-def fetch_group_urlnames(token: str) -> list[dict[str, str]]:
+def fetch_group_urlnames(client: MeetupGraphQLClient) -> list[dict[str, str]]:
     query = """
     query ($urlname: ID!, $cursor: String) {
       proNetwork(urlname: $urlname) {
@@ -35,7 +35,7 @@ def fetch_group_urlnames(token: str) -> list[dict[str, str]]:
     cursor: str | None = None
 
     while True:
-        data = graphql(token, query, {"urlname": PRO_NETWORK, "cursor": cursor})
+        data = client.graphql(query, {"urlname": PRO_NETWORK, "cursor": cursor})
         search = data.get("data", {}).get("proNetwork", {}).get("groupsSearch", {})
         for edge in search.get("edges", []):
             node = edge.get("node", {})
@@ -50,7 +50,7 @@ def fetch_group_urlnames(token: str) -> list[dict[str, str]]:
     return groups
 
 
-def fetch_group_organisers(token: str, group_urlname: str) -> list[dict[str, str]]:
+def fetch_group_organisers(client: MeetupGraphQLClient, group_urlname: str) -> list[dict[str, str]]:
     query = """
     query ($urlname: String!, $cursor: String) {
       groupByUrlname(urlname: $urlname) {
@@ -71,7 +71,7 @@ def fetch_group_organisers(token: str, group_urlname: str) -> list[dict[str, str
     cursor: str | None = None
 
     while True:
-        data = graphql(token, query, {"urlname": group_urlname, "cursor": cursor})
+        data = client.graphql(query, {"urlname": group_urlname, "cursor": cursor})
         group = data.get("data", {}).get("groupByUrlname")
         if not group:
             break
@@ -102,10 +102,10 @@ def main() -> None:
     pre_flight_checks()
 
     logger.info("Authenticating with Meetup API...")
-    token = get_access_token()
+    client = MeetupGraphQLClient(get_access_token())
 
     logger.info("Fetching groups from Pro Network '%s'...", PRO_NETWORK)
-    groups = fetch_group_urlnames(token)
+    groups = fetch_group_urlnames(client)
     logger.info("Found %d groups", len(groups))
 
     fieldnames = ["group_name", "group_urlname", "role", "full_name", "email", "member_since"]
@@ -114,7 +114,7 @@ def main() -> None:
 
     for group in sorted(groups, key=lambda g: g["name"]):
         logger.info("Fetching organisers for %s...", group["urlname"])
-        organisers = fetch_group_organisers(token, group["urlname"])
+        organisers = fetch_group_organisers(client, group["urlname"])
 
         for org in organisers:
             writer.writerow(

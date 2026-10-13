@@ -242,15 +242,16 @@ class TestPretixApiContract:
         import ansible_events_lib
 
         monkeypatch.setattr(ansible_events_lib, "DISCOURSE_API_KEY", "test-api-key")
+        monkeypatch.setitem(ansible_events_lib.DISCOURSE_CLIENT.session.headers, "Api-Key", "test-api-key")
         response = Mock(status_code=200, text='{"ok":true}')
         response.json.return_value = {"ok": True}
         request = Mock(return_value=response)
-        monkeypatch.setattr(ansible_events_lib.httpx, "request", request)
+        monkeypatch.setattr(ansible_events_lib.requests.Session, "request", request)
 
         assert ansible_events_lib.discourse_req("POST", "posts.json", {"raw": "event"}, run_as="organiser") == {
             "ok": True
         }
-        assert request.call_args.kwargs["headers"]["Api-Key"] == "test-api-key"
+        assert ansible_events_lib.DISCOURSE_CLIENT.session.headers["Api-Key"] == "test-api-key"
         assert request.call_args.kwargs["headers"]["Api-Username"] == "organiser"
 
     def test_discourse_request_retries_rate_limit_using_wait_seconds(self, monkeypatch):
@@ -263,7 +264,7 @@ class TestPretixApiContract:
         success.json.return_value = {"groups": []}
         request = Mock(side_effect=[limited, success])
         sleep = Mock()
-        monkeypatch.setattr(ansible_events_lib.httpx, "request", request)
+        monkeypatch.setattr(ansible_events_lib.requests.Session, "request", request)
         monkeypatch.setattr(ansible_events_lib.time, "sleep", sleep)
 
         assert ansible_events_lib.discourse_req("GET", "c/43/show.json") == {"groups": []}
@@ -278,7 +279,7 @@ class TestPretixApiContract:
         limited.json.return_value = {}
         request = Mock(return_value=limited)
         sleep = Mock()
-        monkeypatch.setattr(ansible_events_lib.httpx, "request", request)
+        monkeypatch.setattr(ansible_events_lib.requests.Session, "request", request)
         monkeypatch.setattr(ansible_events_lib.time, "sleep", sleep)
 
         with pytest.raises(ansible_events_lib.ApiError, match="failed after rate-limit retries"):
@@ -342,7 +343,7 @@ class TestPretixApiContract:
         import ansible_events_lib
 
         response = Mock(status_code=404, text="Not found")
-        monkeypatch.setattr(ansible_events_lib.httpx, "get", Mock(return_value=response))
+        monkeypatch.setattr(ansible_events_lib.requests.Session, "request", Mock(return_value=response))
         assert ansible_events_lib.check_event_exists("london-oct-2026") is False
         response.status_code = 503
         with pytest.raises(ansible_events_lib.ApiError):
@@ -353,7 +354,7 @@ class TestPretixApiContract:
 
         response = Mock(status_code=200, text="[]")
         response.json.return_value = []
-        monkeypatch.setattr(ansible_events_lib.httpx, "request", Mock(return_value=response))
+        monkeypatch.setattr(ansible_events_lib.requests.Session, "request", Mock(return_value=response))
         with pytest.raises(ansible_events_lib.ApiError, match="non-object JSON"):
             ansible_events_lib.pretix_req("GET", "events")
 
@@ -370,7 +371,7 @@ class TestPretixApiContract:
             },
         )
         next_request = Mock()
-        monkeypatch.setattr(ansible_events_lib.httpx, "get", next_request)
+        monkeypatch.setattr(ansible_events_lib.requests.Session, "request", next_request)
         with pytest.raises(ansible_events_lib.ApiError, match="outside the configured organizer API"):
             ansible_events_lib.pretix_list_all("events")
         next_request.assert_not_called()
@@ -379,8 +380,14 @@ class TestPretixApiContract:
         import ansible_events_lib
 
         monkeypatch.setattr(ansible_events_lib, "PRETIX_URL", "https://tickets.example")
+        monkeypatch.setattr(
+            ansible_events_lib.PRETIX_CLIENT,
+            "base_url",
+            "https://tickets.example/api/v1/organizers/meetups/",
+        )
         monkeypatch.setattr(ansible_events_lib, "ORGANIZER_SLUG", "meetups")
         monkeypatch.setattr(ansible_events_lib, "PRETIX_API_TOKEN", "secret-token")
+        monkeypatch.setitem(ansible_events_lib.PRETIX_CLIENT.session.headers, "Authorization", "Token secret-token")
         monkeypatch.setattr(
             ansible_events_lib,
             "pretix_req",
@@ -391,11 +398,11 @@ class TestPretixApiContract:
         )
         response = MockResponse(200, {"results": [{"slug": "barcelona-nov-2026"}], "next": None})
         next_request = Mock(return_value=response)
-        monkeypatch.setattr(ansible_events_lib.httpx, "get", next_request)
+        monkeypatch.setattr(ansible_events_lib.requests.Session, "request", next_request)
         result = ansible_events_lib.pretix_list_all("events")
         assert [event["slug"] for event in result] == ["london-oct-2026", "barcelona-nov-2026"]
-        assert next_request.call_args.args[0] == ("https://tickets.example/api/v1/organizers/meetups/events/?page=2")
-        assert next_request.call_args.kwargs["headers"]["Authorization"] == "Token secret-token"
+        assert next_request.call_args.args[1] == ("https://tickets.example/api/v1/organizers/meetups/events/?page=2")
+        assert ansible_events_lib.PRETIX_CLIENT.session.headers["Authorization"] == "Token secret-token"
 
 
 class MockResponse:

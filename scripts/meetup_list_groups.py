@@ -10,8 +10,8 @@ from typing import Any
 
 from meetup_pro_lib import (
     PRO_NETWORK,
+    MeetupGraphQLClient,
     get_access_token,
-    graphql,
     logger,
     pre_flight_checks,
 )
@@ -19,7 +19,7 @@ from meetup_pro_lib import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-def fetch_all_groups(token: str) -> list[dict[str, Any]]:
+def fetch_all_groups(client: MeetupGraphQLClient) -> list[dict[str, Any]]:
     query = """
     query ($urlname: ID!, $cursor: String) {
       proNetwork(urlname: $urlname) {
@@ -40,7 +40,7 @@ def fetch_all_groups(token: str) -> list[dict[str, Any]]:
     cursor: str | None = None
 
     while True:
-        data = graphql(token, query, {"urlname": PRO_NETWORK, "cursor": cursor})
+        data = client.graphql(query, {"urlname": PRO_NETWORK, "cursor": cursor})
         search = data.get("data", {}).get("proNetwork", {}).get("groupsSearch", {})
 
         for edge in search.get("edges", []):
@@ -70,10 +70,10 @@ def main() -> None:
     pre_flight_checks()
 
     logger.info("Authenticating with Meetup API...")
-    token = get_access_token()
+    client = MeetupGraphQLClient(get_access_token())
 
     logger.info("Fetching groups from Pro Network '%s'...", PRO_NETWORK)
-    groups = fetch_all_groups(token)
+    groups = fetch_all_groups(client)
     logger.info("Found %d groups", len(groups))
 
     writer = csv.DictWriter(sys.stdout, fieldnames=["id", "name", "urlname", "city", "country", "members", "timezone"])

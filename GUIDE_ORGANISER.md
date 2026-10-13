@@ -17,7 +17,7 @@ Before diving in, here's a quick overview of the key concepts, systems, and term
 
 You log in to both with your **forum account** — one identity, no separate passwords.
 
-The Community Team also maintains CLI helpers for importing legacy Meetup Pro group data; those scripts use the same Python environment as the event tooling.
+The Community Team also maintains CLI helpers for importing legacy Meetup Pro group data; those scripts use reusable Requests sessions in the shared tooling environment.
 
 ### Forum structure
 

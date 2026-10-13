@@ -30,7 +30,7 @@ The system is operated by the Ansible Community Team via CLI scripts. Local orga
 | **Pretix** | Event ticketing, RSVP, QR codes, check-in | REST API v1 (`/api/v1/`) | Token-based (`Authorization: Token {token}`) |
 | **Discourse** | Identity (SSO), forum, group permissions, event content | REST API (`/posts.json`, `/admin/groups.json`, etc.) | Global API key (`Api-Key` + `Api-Username` headers) |
 
-The shared Meetup Pro GraphQL/OAuth client in `scripts/meetup_pro_lib.py` uses `httpx` for HTTP requests. `httpx` is the project's HTTP client dependency; the client applies a 10-second timeout to token requests and a 30-second timeout to GraphQL requests, and waits 60 seconds before retrying a rate-limited GraphQL request.
+The Pretix, Discourse, and Meetup Pro API helpers use reusable `requests.Session` clients. Each client stores its base URL, default headers, and timeout; redirects are disabled so credentials are not forwarded to another URL. Pretix and Discourse requests use a 10-second timeout. Meetup Pro token requests use 10 seconds and GraphQL requests use 30 seconds, with a 60-second wait before retrying a rate-limited request.
 
 ### Trust Model
 
@@ -453,7 +453,7 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 | `POST` | `posts.json` | Create forum topic |
 | `PUT` | `posts/{id}.json` | Update post content |
 
-**SSO Toolkit Additional Endpoints (urllib, not httpx):**
+**SSO Toolkit Additional Endpoints (urllib):**
 
 | Method | Endpoint | Purpose |
 |---|---|---|
@@ -491,7 +491,7 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 
 - API error response bodies truncated to 200 characters: `resp.text[:200]`.
 - API tokens are in headers only, never in URLs or log messages.
-- `httpx.HTTPError` exception messages do not include request headers.
+- Requests exception messages do not include request headers.
 
 ### Attack and Misconfiguration Model
 
@@ -589,9 +589,9 @@ X and Bluesky include a fallback mechanism: if the primary text exceeds the char
 
 ### HTTP
 
-- **Timeout:** 10 seconds on ALL HTTP calls (httpx and urllib).
-- **No retries:** Failed requests raise `ApiError`; CLI entry points report the error and exit non-zero.
-- **No connection pooling:** Each `httpx.request()` call creates a new connection.
+- **Timeout:** 10 seconds on all Pretix/Discourse API calls and urllib calls. Meetup Pro OAuth uses 10 seconds; GraphQL uses 30 seconds.
+- **Rate-limit retries:** Discourse requests retry HTTP 429 up to three times using `Retry-After`, Discourse wait metadata, or exponential backoff. Meetup GraphQL requests wait 60 seconds and retry on HTTP 429. Other failures are not retried and API wrapper errors stop the CLI.
+- **Connection pooling:** Reusable `requests.Session` clients pool connections across API requests.
 
 ### Logging
 
@@ -635,7 +635,7 @@ X and Bluesky include a fallback mechanism: if the primary text exceeds the char
 
 ### Dependencies
 
-- **Runtime:** `httpx>=0.28`, `flask>=3.1.3`.
+- **Runtime:** `requests>=2.32`, `flask>=3.1.3`.
 - **Dev:** `pytest>=8`, `pytest-cov>=6`, `ruff>=0.11`, `isort>=6`, `pyright>=1.1`.
 - **Build:** Hatchling.
 - **Package manager:** uv (with `uv.lock` committed).

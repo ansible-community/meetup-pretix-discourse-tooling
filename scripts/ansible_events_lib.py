@@ -11,11 +11,11 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import httpx
+import requests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("ansible_meetups")
-logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 class ApiError(RuntimeError):
@@ -81,6 +81,46 @@ USER_CITY_FIELD_ID = 4
 
 # --- Security ---
 RTBF_EMAIL_SUFFIX = "@anonymized.invalid"
+
+
+class ApiClient:
+    """Reusable Requests session with shared API URL, headers, and timeout."""
+
+    def __init__(self, base_url: str, headers: dict[str, str | None], timeout: int) -> None:
+        self.base_url = base_url.rstrip("/") + "/"
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update({key: value for key, value in headers.items() if value is not None})
+
+    def request(self, method: str, endpoint: str, **kwargs: Any) -> requests.Response:
+        if urlparse(endpoint).scheme:
+            url = endpoint
+        else:
+            path, separator, query = endpoint.partition("?")
+            path = path.rstrip("/") + "/"
+            url = urljoin(self.base_url, path.lstrip("/"))
+            if separator:
+                url = f"{url}?{query}"
+        kwargs.setdefault("timeout", self.timeout)
+        kwargs.setdefault("allow_redirects", False)
+        return self.session.request(method, url, **kwargs)
+
+
+PRETIX_CLIENT = ApiClient(
+    f"{PRETIX_URL}/api/v1/organizers/{ORGANIZER_SLUG}/",
+    {"Authorization": f"Token {PRETIX_API_TOKEN}" if PRETIX_API_TOKEN else None, "Content-Type": "application/json"},
+    API_REQUEST_TIMEOUT_SECONDS,
+)
+DISCOURSE_CLIENT = ApiClient(
+    DISCOURSE_URL,
+    {
+        "Api-Key": DISCOURSE_API_KEY,
+        "Api-Username": DISCOURSE_API_USER,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    },
+    API_REQUEST_TIMEOUT_SECONDS,
+)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -230,23 +270,9 @@ def pretix_req(method: str, endpoint: str, payload: dict[str, Any] | None = None
 
     Returns parsed JSON on success. Raises ApiError on every failure.
     """
-    url = f"{PRETIX_URL}/api/v1/organizers/{ORGANIZER_SLUG}/{endpoint}"
-    if "?" in url:
-        base, query = url.split("?", 1)
-        if not base.endswith("/"):
-            base += "/"
-        url = f"{base}?{query}"
-    else:
-        if not url.endswith("/"):
-            url += "/"
-
-    headers = {
-        "Authorization": f"Token {PRETIX_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
     try:
-        resp = httpx.request(method, url, json=payload, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
-    except httpx.HTTPError as exc:
+        resp = PRETIX_CLIENT.request(method, endpoint, json=payload)
+    except requests.RequestException as exc:
         raise ApiError(f"Pretix {method} {endpoint} connection error: {exc}") from exc
     if resp.status_code not in (200, 201, 204):
         raise ApiError(f"Pretix {method} {endpoint} failed: {resp.status_code} {resp.text[:200]}")
@@ -278,17 +304,12 @@ def discourse_req(
 
     Returns parsed JSON on success. Raises ApiError on every failure.
     """
-    url = f"{DISCOURSE_URL.rstrip('/')}/{endpoint}"
-    headers = {
-        "Api-Key": DISCOURSE_API_KEY,
-        "Api-Username": run_as or DISCOURSE_API_USER,
-        "Content-Type": "application/json",
-    }
-    resp: httpx.Response | None = None
+    resp: requests.Response | None = None
     for attempt in range(DISCOURSE_429_MAX_RETRIES + 1):
         try:
-            resp = httpx.request(method, url, json=payload, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
-        except httpx.HTTPError as exc:
+            headers = {"Api-Username": run_as} if run_as else None
+            resp = DISCOURSE_CLIENT.request(method, endpoint, json=payload, headers=headers)
+        except requests.RequestException as exc:
             raise ApiError(f"Discourse {method} {endpoint} connection error: {exc}") from exc
         if resp.status_code != 429:
             break
@@ -381,28 +402,22 @@ def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
             raise ApiError("Pretix pagination returned an invalid next URL")
         page_url = checked_next_url(next_url)
         try:
-            page_resp = httpx.get(
-                page_url,
-                headers={"Authorization": f"Token {PRETIX_API_TOKEN}", "Content-Type": "application/json"},
-                timeout=API_REQUEST_TIMEOUT_SECONDS,
-            )
+            page_resp = PRETIX_CLIENT.request("GET", page_url)
             if page_resp.status_code != 200:
                 raise ApiError(f"Pretix pagination failed: {page_resp.status_code}")
             resp = page_resp.json()
             if not isinstance(resp, dict):
                 raise ApiError("Pretix pagination returned non-object JSON")
-        except (httpx.HTTPError, ValueError) as exc:
+        except (requests.RequestException, ValueError) as exc:
             raise ApiError("Pretix pagination request failed") from exc
     return results
 
 
 def check_event_exists(slug: str) -> bool:
     """Return True/False for a confirmed event/404; raise ApiError otherwise."""
-    url = f"{PRETIX_URL}/api/v1/organizers/{ORGANIZER_SLUG}/events/{slug}/"
-    headers = {"Authorization": f"Token {PRETIX_API_TOKEN}"}
     try:
-        resp = httpx.get(url, headers=headers, timeout=API_REQUEST_TIMEOUT_SECONDS)
-    except httpx.HTTPError as exc:
+        resp = PRETIX_CLIENT.request("GET", f"events/{slug}/")
+    except requests.RequestException as exc:
         raise ApiError(f"Pretix check_event_exists {slug} connection error: {exc}") from exc
     if resp.status_code == 404:
         return False

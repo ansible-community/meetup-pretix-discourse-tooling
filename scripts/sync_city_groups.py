@@ -23,14 +23,12 @@ import time
 from collections import defaultdict
 from typing import Any
 
-import httpx
+import requests
+
 from ansible_events_lib import (
-    API_REQUEST_TIMEOUT_SECONDS,
     ATTENDEE_GROUP_PREFIX,
     CITIES,
-    DISCOURSE_API_KEY,
-    DISCOURSE_API_USER,
-    DISCOURSE_URL,
+    DISCOURSE_CLIENT,
     USER_CITY_FIELD_NAME,
     CityInfo,
     logger,
@@ -42,33 +40,28 @@ CITY_BY_VALUE: dict[str, CityInfo] = {c.field_value: c for c in CITIES}
 API_PAUSE = 0.15
 
 
-def _headers() -> dict[str, str | None]:
-    return {"Api-Key": DISCOURSE_API_KEY, "Api-Username": DISCOURSE_API_USER, "Accept": "application/json"}
-
-
 def _get(path: str, **params: Any) -> Any:
     time.sleep(API_PAUSE)
-    resp = httpx.get(f"{DISCOURSE_URL}/{path}", headers=_headers(), params=params, timeout=API_REQUEST_TIMEOUT_SECONDS)  # type: ignore[arg-type]
+    resp = DISCOURSE_CLIENT.request("GET", path, params=params)
+    if not 200 <= resp.status_code < 300:
+        raise requests.HTTPError(f"Discourse GET {path} failed: HTTP {resp.status_code}", response=resp)
     resp.raise_for_status()
     return resp.json()
 
 
 def _put(path: str, payload: dict[str, Any]) -> None:
     time.sleep(API_PAUSE)
-    resp = httpx.put(
-        f"{DISCOURSE_URL}/{path}",
-        headers=_headers(),
-        json=payload,
-        timeout=API_REQUEST_TIMEOUT_SECONDS,
-    )  # type: ignore[arg-type]
+    resp = DISCOURSE_CLIENT.request("PUT", path, json=payload)
+    if not 200 <= resp.status_code < 300:
+        raise requests.HTTPError(f"Discourse PUT {path} failed: HTTP {resp.status_code}", response=resp)
     resp.raise_for_status()
 
 
 def _delete(path: str, payload: dict[str, Any]) -> None:
     time.sleep(API_PAUSE)
-    resp = httpx.request(
-        "DELETE", f"{DISCOURSE_URL}/{path}", headers=_headers(), json=payload, timeout=API_REQUEST_TIMEOUT_SECONDS
-    )  # type: ignore[arg-type]
+    resp = DISCOURSE_CLIENT.request("DELETE", path, json=payload)
+    if not 200 <= resp.status_code < 300:
+        raise requests.HTTPError(f"Discourse DELETE {path} failed: HTTP {resp.status_code}", response=resp)
     resp.raise_for_status()
 
 

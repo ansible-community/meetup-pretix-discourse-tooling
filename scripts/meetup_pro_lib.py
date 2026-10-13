@@ -9,14 +9,56 @@ import time
 from pathlib import Path
 from typing import Any
 
-import httpx
 import jwt
+import requests
 
 logger = logging.getLogger("meetup_export")
 
-MEETUP_API_URL = "https://api.meetup.com/gql-ext"
-MEETUP_TOKEN_URL = "https://secure.meetup.com/oauth2/access"
 PRO_NETWORK = "ansible"
+
+
+class RequestsClient:
+    """A configured requests.Session with a base URL and default timeout."""
+
+    def __init__(self, base_url: str, timeout: int, headers: dict[str, str] | None = None) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update(headers or {})
+
+    def post(self, path: str, **kwargs: Any) -> requests.Response:
+        """POST to a path relative to the configured base URL."""
+        kwargs.setdefault("timeout", self.timeout)
+        kwargs.setdefault("allow_redirects", False)
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        return self.session.post(url, **kwargs)
+
+
+TOKEN_CLIENT = RequestsClient("https://secure.meetup.com/oauth2", timeout=10)
+
+
+class MeetupGraphQLClient:
+    """GraphQL client that reuses one configured requests session."""
+
+    def __init__(self, token: str) -> None:
+        self.http = RequestsClient(
+            "https://api.meetup.com",
+            timeout=30,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    def graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Execute a GraphQL query with rate limit handling."""
+        resp = self.http.post("gql-ext", json={"query": query, "variables": variables or {}})
+        if resp.status_code == 429:
+            wait = 60
+            logger.warning("Rate limited, waiting %ds...", wait)
+            time.sleep(wait)
+            return self.graphql(query, variables)
+        if resp.status_code != 200:
+            logger.error("GraphQL request failed: HTTP %d", resp.status_code)
+            return {}
+        return resp.json()
 
 
 def pre_flight_checks() -> None:
@@ -47,10 +89,9 @@ def get_access_token() -> str:
         headers={"kid": signing_key_id, "typ": "JWT", "alg": "RS256"},
     )
 
-    resp = httpx.post(
-        MEETUP_TOKEN_URL,
+    resp = TOKEN_CLIENT.post(
+        "access",
         data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": signed_jwt},
-        timeout=10,
     )
     if resp.status_code != 200:
         logger.error("Meetup auth failed: HTTP %d", resp.status_code)
@@ -61,22 +102,3 @@ def get_access_token() -> str:
         logger.error("No access_token in response")
         sys.exit(1)
     return token
-
-
-def graphql(token: str, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Execute a GraphQL query with rate limit handling."""
-    resp = httpx.post(
-        MEETUP_API_URL,
-        json={"query": query, "variables": variables or {}},
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30,
-    )
-    if resp.status_code == 429:
-        wait = 60
-        logger.warning("Rate limited, waiting %ds...", wait)
-        time.sleep(wait)
-        return graphql(token, query, variables)
-    if resp.status_code != 200:
-        logger.error("GraphQL request failed: HTTP %d", resp.status_code)
-        return {}
-    return resp.json()
