@@ -549,11 +549,12 @@ X and Bluesky include a fallback mechanism: if the primary text exceeds the char
 
 ### Dependencies
 
-- **Runtime:** `requests>=2.32`, `flask>=3.1.3`.
+- **Runtime:** `requests>=2.32`.
 - **Dev:** `pytest>=8`, `pytest-cov>=6`, `ruff>=0.11`, `isort>=6`, `pyright>=1.1`.
 - **Build:** Hatchling.
 - **Package manager:** uv (with `uv.lock` committed).
 - **Python:** `>=3.13`.
+- **CLI layout:** Runnable project commands live under `scripts/`; there is no top-level scaffold entry point.
 
 ---
 

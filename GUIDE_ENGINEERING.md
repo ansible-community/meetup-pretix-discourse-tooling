@@ -439,6 +439,8 @@ Organiser migration is handled individually, not via invite links:
 
 All three must pass before committing:
 
+Project commands live under `scripts/`; run the checks against those maintained scripts rather than a generated root-level starter file.
+
 ```bash
 # Linting and formatting (auto-fixes where possible)
 bash lint.sh

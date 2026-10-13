@@ -4,18 +4,18 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "==> isort (fix import ordering)..."
-uv run isort --profile black --quiet scripts/*.py main.py
+uv run isort --profile black --quiet scripts/*.py
 
 echo "==> ruff format..."
-uv run ruff format scripts/*.py main.py
+uv run ruff format scripts/*.py
 
 echo "==> ruff check --fix..."
-uv run ruff check --fix scripts/*.py main.py
+uv run ruff check --fix scripts/*.py
 
 echo "==> Syntax check (py_compile)..."
 uv run python3 -c "
 import py_compile, glob
-files = glob.glob('scripts/*.py') + ['main.py']
+files = glob.glob('scripts/*.py')
 for f in files:
     py_compile.compile(f, doraise=True)
 " && echo "    All files compile OK."
