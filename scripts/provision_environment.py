@@ -25,6 +25,7 @@ from ansible_events_lib import (
     EVENTS_FORUM_URL,
     MIGRATED_GROUP_NAME,
     ORGANIZERS_GROUP_RE,
+    ORGANISERS_GROUP_PREFIX,
     ORGANISER_PERMISSIONS,
     STAFF_TEAM_NAME,
     GROUP_VISIBILITY_OWNERS_ONLY,
@@ -136,7 +137,15 @@ def build_city_forum_plans() -> list[CityForumPlan]:
 
 
 def list_discourse_groups() -> list[dict]:
-    """Fetch every Discourse group page so reconciliations cannot miss later groups."""
+    """Fetch meetup groups and reject malformed organiser group names.
+
+    Returns:
+        All groups whose name contains `meetup`, case-insensitively.
+
+    Raises:
+        ApiError: If a group in the organiser namespace does not match the
+            canonical lowercase city-slug format.
+    """
     groups: list[dict] = []
     page = 0
     while True:
@@ -148,11 +157,16 @@ def list_discourse_groups() -> list[dict]:
             raise ApiError("Discourse groups response is missing groups")
         if any(not isinstance(group, dict) for group in batch):
             raise ApiError("Discourse groups response contains an invalid group")
-        groups.extend(
-            group
-            for group in batch
-            if isinstance(group.get("name"), str) and "meetup" in group["name"].casefold()
-        )
+        for group in batch:
+            name = group.get("name")
+            if not isinstance(name, str):
+                continue
+            if name.casefold().startswith(ORGANISERS_GROUP_PREFIX.casefold()) and not ORGANIZERS_GROUP_RE.fullmatch(
+                name
+            ):
+                raise ApiError(f"Discourse organiser group name {name!r} must match meetup-organisers-<lowercase-city>")
+            if "meetup" in name.casefold():
+                groups.append(group)
         if not batch:
             return groups
         page += 1
@@ -836,6 +850,9 @@ def main() -> None:
     """Reconcile the configured Pretix and Discourse environment."""
     pre_flight_checks()
 
+    # Validate the complete meetup group inventory before making any changes.
+    groups_by_name = index_groups_by_name(list_discourse_groups())
+
     logger.info("--- 1. PRETIX PROVISIONING ---")
     organizer_settings = {
         "primary_color": ANSIBLE_PRIMARY_COLOR,
@@ -867,7 +884,6 @@ def main() -> None:
 
     # Read each collection once. Subsequent create/update operations maintain
     # these snapshots so per-city work never triggers another full listing.
-    groups_by_name = index_groups_by_name(list_discourse_groups())
     categories = discourse_categories()
     plans = build_city_forum_plans()
 

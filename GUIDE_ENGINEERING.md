@@ -178,6 +178,8 @@ Without the certificate, Apple Wallet passes won't generate. Google Wallet passe
 
 This script reconciles the infrastructure in Discourse and Pretix to the configured desired state. It creates missing resources and updates existing groups, category permissions, template settings, and Pretix team permissions. It fails if API requests cannot complete; review the output and fix any error before relying on the resulting permissions.
 
+Before it changes either service, it checks that every group name in the `meetup-organisers` namespace matches `meetup-organisers-{lowercase-city}`. Rename malformed groups before rerunning provisioning.
+
 During category permission cleanup, it reads the paginated Discourse group directory and only considers groups whose names contain `meetup` (case-insensitive).
 
 ### What it creates
