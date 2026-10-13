@@ -37,6 +37,13 @@ from ansible_events_lib import (
 
 
 def print_social_media_copy(*, city: str, dt: datetime, forum_url: str) -> None:
+    """Print ready-to-share event copy for supported social platforms.
+
+    Args:
+        city: Canonical city display name.
+        dt: Event-local start date and time.
+        forum_url: Canonical Discourse event topic URL.
+    """
     print("\n" + "=" * 80)
     print("SOCIAL MEDIA COPY (ready to paste)")
     print("=" * 80 + "\n")
@@ -117,6 +124,7 @@ Feel free to reach out if you have questions or want to propose a talk topic!"""
 
 
 def main() -> None:
+    """Validate event inputs and create the linked Forum and Pretix event."""
     parser = argparse.ArgumentParser(description="Generate an Ansible Meetup with Discourse Calendar integration.")
     parser.add_argument("--city", required=True, help="Registered lowercase city slug, e.g. london")
     parser.add_argument("--date", required=True, help="Event local time (e.g., '2026-10-31T18:00:00')")

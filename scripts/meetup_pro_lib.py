@@ -23,6 +23,13 @@ class RequestsClient:
     """A configured requests.Session with a base URL and default timeout."""
 
     def __init__(self, base_url: str, timeout: int, headers: dict[str, str] | None = None) -> None:
+        """Create a session with shared defaults.
+
+        Args:
+            base_url: Root URL for requests made by this client.
+            timeout: Default request timeout in seconds.
+            headers: Optional headers to add to each request.
+        """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
@@ -44,6 +51,11 @@ class MeetupGraphQLClient:
     """GraphQL client that reuses one configured requests session."""
 
     def __init__(self, token: str) -> None:
+        """Create an authenticated Meetup GraphQL client.
+
+        Args:
+            token: OAuth2 access token for the Meetup API.
+        """
         self.http = RequestsClient(
             "https://api.meetup.com",
             timeout=30,

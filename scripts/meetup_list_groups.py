@@ -20,6 +20,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 def fetch_all_groups(client: MeetupGraphQLClient) -> list[dict[str, Any]]:
+    """Fetch every group in the configured Meetup Pro network.
+
+    Args:
+        client: Authenticated Meetup GraphQL client.
+
+    Returns:
+        Group records with location, membership, and timezone data.
+    """
     query = """
     query ($urlname: ID!, $cursor: String) {
       proNetwork(urlname: $urlname) {
@@ -67,6 +75,7 @@ def fetch_all_groups(client: MeetupGraphQLClient) -> list[dict[str, Any]]:
 
 
 def main() -> None:
+    """Fetch Meetup Pro groups and write them as CSV to stdout."""
     pre_flight_checks()
 
     logger.info("Authenticating with Meetup API...")

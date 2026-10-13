@@ -91,6 +91,13 @@ class ApiClient:
     """Reusable Requests session with shared API URL, headers, and timeout."""
 
     def __init__(self, base_url: str, headers: dict[str, str | None], timeout: int) -> None:
+        """Initialize a reusable API session.
+
+        Args:
+            base_url: Root URL used to resolve relative endpoint paths.
+            headers: Default headers; entries with `None` values are omitted.
+            timeout: Request timeout in seconds.
+        """
         self.base_url = base_url.rstrip("/") + "/"
         self.timeout = timeout
         self.session = requests.Session()
@@ -98,6 +105,16 @@ class ApiClient:
         self.session.headers["User-Agent"] = HTTP_USER_AGENT
 
     def request(self, method: str, endpoint: str, **kwargs: Any) -> requests.Response:
+        """Send a request with the client's URL, headers, and timeout defaults.
+
+        Args:
+            method: HTTP method to use.
+            endpoint: Relative API path or absolute URL.
+            **kwargs: Additional keyword arguments passed to Requests.
+
+        Returns:
+            The HTTP response.
+        """
         if urlparse(endpoint).scheme:
             url = endpoint
         else:
@@ -139,6 +156,7 @@ class CityInfo:
     timezone: str
 
     def __post_init__(self) -> None:
+        """Validate the city slug, labels, and IANA timezone."""
         if not CITY_SLUG_RE.fullmatch(self.slug):
             raise ValueError(f"City slug must contain lowercase ASCII letters only: {self.slug!r}")
         if not self.city.strip() or not self.region.strip() or not self.country.strip():
@@ -155,18 +173,22 @@ class CityInfo:
 
     @property
     def event_name(self) -> str:
+        """Return the canonical event name for this city."""
         return f"{EVENT_NAME_PREFIX} {self.city}"
 
     @property
     def team_name(self) -> str:
+        """Return the canonical Pretix organiser team name for this city."""
         return f"{ORGANISER_TEAM_PREFIX} - {self.city}"
 
     @property
     def organiser_group(self) -> str:
+        """Return the canonical Discourse organiser group name."""
         return f"{ORGANISERS_GROUP_PREFIX}-{self.slug}"
 
     @property
     def attendee_group(self) -> str:
+        """Return the canonical Discourse attendee group name."""
         return f"{ATTENDEE_GROUP_PREFIX}-{self.slug}"
 
 
@@ -221,6 +243,7 @@ def discourse_categories() -> list[dict[str, Any]]:
     categories: list[dict[str, Any]] = []
 
     def flatten(rows: list[Any]) -> None:
+        """Append categories and nested subcategories to the result list."""
         for row in rows:
             if not isinstance(row, dict):
                 raise ApiError("Discourse categories response contains an invalid category")
@@ -378,6 +401,7 @@ def pretix_list_all(endpoint: str) -> list[dict[str, Any]]:
     expected_path_prefix = f"{configured_url.path.rstrip('/')}/api/v1/organizers/{ORGANIZER_SLUG}/"
 
     def checked_next_url(next_url: str) -> str:
+        """Validate a pagination URL stays within the configured API origin."""
         resolved = urlparse(urljoin(api_base, next_url))
         try:
             configured_port = configured_url.port or (443 if configured_url.scheme == "https" else 80)

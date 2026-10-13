@@ -41,6 +41,15 @@ API_PAUSE = 0.15
 
 
 def _get(path: str, **params: Any) -> Any:
+    """Fetch JSON from the Discourse API.
+
+    Args:
+        path: API path relative to the configured Discourse URL.
+        **params: Query parameters for the request.
+
+    Returns:
+        The decoded JSON response.
+    """
     time.sleep(API_PAUSE)
     resp = DISCOURSE_CLIENT.request("GET", path, params=params)
     if not 200 <= resp.status_code < 300:
@@ -50,6 +59,12 @@ def _get(path: str, **params: Any) -> Any:
 
 
 def _put(path: str, payload: dict[str, Any]) -> None:
+    """Send a JSON update to the Discourse API.
+
+    Args:
+        path: API path relative to the configured Discourse URL.
+        payload: JSON object to send.
+    """
     time.sleep(API_PAUSE)
     resp = DISCOURSE_CLIENT.request("PUT", path, json=payload)
     if not 200 <= resp.status_code < 300:
@@ -58,6 +73,12 @@ def _put(path: str, payload: dict[str, Any]) -> None:
 
 
 def _delete(path: str, payload: dict[str, Any]) -> None:
+    """Delete Discourse group members using a JSON request body.
+
+    Args:
+        path: API path relative to the configured Discourse URL.
+        payload: JSON object describing the members to remove.
+    """
     time.sleep(API_PAUSE)
     resp = DISCOURSE_CLIENT.request("DELETE", path, json=payload)
     if not 200 <= resp.status_code < 300:
@@ -91,6 +112,14 @@ def list_attendee_groups() -> dict[str, int]:
 
 
 def group_members(group_id: int) -> set[str]:
+    """Return all usernames in a Discourse group.
+
+    Args:
+        group_id: Discourse group identifier.
+
+    Returns:
+        Usernames across all paginated member results.
+    """
     members: set[str] = set()
     offset = 0
     while True:
@@ -138,6 +167,15 @@ def iter_users_with_field() -> list[tuple[str, list[str]]]:
 
 
 def reconcile(*, apply: bool, prune: bool) -> int:
+    """Plan or apply attendee-group membership from user city selections.
+
+    Args:
+        apply: Whether to write membership changes; false performs a dry run.
+        prune: Whether to remove members whose city selection was cleared.
+
+    Returns:
+        Number of planned or applied membership changes.
+    """
     existing_groups = list_attendee_groups()
     logger.info("Found %d attendee group(s)", len(existing_groups))
 
@@ -186,6 +224,7 @@ def reconcile(*, apply: bool, prune: bool) -> int:
 
 
 def main() -> None:
+    """Parse CLI options and reconcile attendee group membership."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     pre_flight_checks(require_discourse=True)
 

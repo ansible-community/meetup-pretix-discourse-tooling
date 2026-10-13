@@ -550,6 +550,7 @@ X and Bluesky include a fallback mechanism: if the primary text exceeds the char
 ### Dependencies
 
 - **Runtime:** `requests>=2.32`.
+- **Documentation:** Python functions and methods include Google-style docstrings; parameters and return values are documented when useful.
 - **Dev:** `pytest>=8`, `pytest-cov>=6`, `ruff>=0.11`, `isort>=6`, `pyright>=1.1`.
 - **Build:** Hatchling.
 - **Package manager:** uv (with `uv.lock` committed).

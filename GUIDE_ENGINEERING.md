@@ -452,6 +452,8 @@ uv run pytest tests/ -v
 uv run pyright scripts/
 ```
 
+Document Python functions and methods with Google-style docstrings. Include `Args` and `Returns` sections when they clarify the callable's contract.
+
 ### Ruff rules enabled
 
 `E` (pycodestyle), `F` (pyflakes), `B` (bugbear), `S` (bandit), `T20` (print), `DTZ` (datetimez), `UP` (pyupgrade), `SIM` (simplify), `G` (logging-format).

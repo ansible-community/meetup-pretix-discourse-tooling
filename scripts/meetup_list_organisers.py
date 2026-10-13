@@ -20,6 +20,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 def fetch_group_urlnames(client: MeetupGraphQLClient) -> list[dict[str, str]]:
+    """Fetch names and URL names for every group in the Meetup Pro network.
+
+    Args:
+        client: Authenticated Meetup GraphQL client.
+
+    Returns:
+        Group name and URL name records.
+    """
     query = """
     query ($urlname: ID!, $cursor: String) {
       proNetwork(urlname: $urlname) {
@@ -51,6 +59,15 @@ def fetch_group_urlnames(client: MeetupGraphQLClient) -> list[dict[str, str]]:
 
 
 def fetch_group_organisers(client: MeetupGraphQLClient, group_urlname: str) -> list[dict[str, str]]:
+    """Fetch organiser membership records for a Meetup group.
+
+    Args:
+        client: Authenticated Meetup GraphQL client.
+        group_urlname: URL name identifying the group.
+
+    Returns:
+        Organiser role, identity, email, and membership date records.
+    """
     query = """
     query ($urlname: String!, $cursor: String) {
       groupByUrlname(urlname: $urlname) {
@@ -99,6 +116,7 @@ def fetch_group_organisers(client: MeetupGraphQLClient, group_urlname: str) -> l
 
 
 def main() -> None:
+    """Fetch Meetup Pro group organisers and write them as CSV to stdout."""
     pre_flight_checks()
 
     logger.info("Authenticating with Meetup API...")

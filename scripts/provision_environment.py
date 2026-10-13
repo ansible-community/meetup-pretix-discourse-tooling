@@ -59,13 +59,16 @@ class CityForumPlan:
 
     @property
     def organiser_group_name(self) -> str:
+        """Return this city's organiser group name."""
         return self.city.organiser_group
 
     @property
     def attendee_group_name(self) -> str:
+        """Return this city's attendee group name."""
         return self.city.attendee_group
 
     def organiser_group_settings(self) -> dict[str, Any]:
+        """Build the desired security and notification settings for the organiser group."""
         settings: dict[str, Any] = {
             "name": self.organiser_group_name,
             "full_name": f"Ansible Meetup Organisers - {self.city.city}",
@@ -89,6 +92,7 @@ class CityForumPlan:
         return settings
 
     def attendee_group_settings(self) -> dict[str, Any]:
+        """Build the desired privacy and notification settings for the attendee group."""
         return {
             "name": self.attendee_group_name,
             "full_name": f"Ansible Meetup Attendees - {self.city.city}",
@@ -103,6 +107,7 @@ class CityForumPlan:
         }
 
     def category_settings(self) -> dict[str, Any]:
+        """Build desired category permissions and presentation settings."""
         if self.organiser_group_id is None:
             raise ApiError(f"Organiser group ID is missing for city {self.city.slug!r}")
         return {
@@ -196,6 +201,16 @@ UNORDERED_FIELDS: set[str] = {
 
 
 def same_configuration_value(field: str, current: Any, desired: Any) -> bool:
+    """Compare configuration values while accounting for unordered API lists.
+
+    Args:
+        field: Name of the configuration field.
+        current: Value currently returned by the API.
+        desired: Value required by provisioning.
+
+    Returns:
+        Whether the values represent the same configuration.
+    """
     if field == "choices" and current in (None, []) and desired in (None, []):
         # Pretix represents an unrestricted metadata property as either null or [].
         return True
@@ -633,6 +648,15 @@ def index_groups_by_name(groups: list[dict[str, Any]]) -> dict[str, dict[str, An
 
 
 def city_category_matches(categories: list[dict[str, Any]], city_name: str) -> list[dict[str, Any]]:
+    """Find direct child categories with the requested city name.
+
+    Args:
+        categories: Flattened Discourse category records.
+        city_name: Canonical city display name.
+
+    Returns:
+        Matching city subcategory records.
+    """
     return [
         category
         for category in categories
@@ -809,6 +833,7 @@ def ensure_user_field_options() -> None:
 
 
 def main() -> None:
+    """Reconcile the configured Pretix and Discourse environment."""
     pre_flight_checks()
 
     logger.info("--- 1. PRETIX PROVISIONING ---")
