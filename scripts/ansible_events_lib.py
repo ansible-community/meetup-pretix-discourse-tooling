@@ -39,6 +39,10 @@ DISCOURSE_API_KEY = os.environ.get("DISCOURSE_API_KEY")
 # --- Ansible Community constants ---
 DISCOURSE_URL = "https://forum.ansible.com"
 DISCOURSE_API_USER = "system"
+HTTP_USER_AGENT = (
+    "Ansible-Meetup-Tooling/0.1.0 "
+    "(+https://github.com/ansible-community/meetup-pretix-discourse-tooling)"
+)
 ORGANIZER_SLUG = "ansible-meetups"
 CONTACT_EMAIL = "ansible-community-events@redhat.com"
 ANSIBLE_PRIMARY_COLOR = "#EE0000"
@@ -91,6 +95,7 @@ class ApiClient:
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({key: value for key, value in headers.items() if value is not None})
+        self.session.headers["User-Agent"] = HTTP_USER_AGENT
 
     def request(self, method: str, endpoint: str, **kwargs: Any) -> requests.Response:
         if urlparse(endpoint).scheme:

@@ -12,6 +12,8 @@ from typing import Any
 import jwt
 import requests
 
+from ansible_events_lib import HTTP_USER_AGENT
+
 logger = logging.getLogger("meetup_export")
 
 PRO_NETWORK = "ansible"
@@ -25,6 +27,7 @@ class RequestsClient:
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update(headers or {})
+        self.session.headers["User-Agent"] = HTTP_USER_AGENT
 
     def post(self, path: str, **kwargs: Any) -> requests.Response:
         """POST to a path relative to the configured base URL."""

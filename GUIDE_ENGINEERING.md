@@ -26,7 +26,7 @@ export DISCOURSE_API_KEY="your-discourse-api-key"     # Required — Discourse A
 
 The Discourse URL (`https://forum.ansible.com`) and API user (`system`) are hardcoded — they are the same for all deployments.
 
-The Pretix, Discourse, and Meetup Pro API helpers use reusable `requests.Session` clients. Each client sets its base URL, default headers, and timeout once; redirects are disabled so API credentials are not forwarded to another URL.
+The Pretix, Discourse, and Meetup Pro API helpers use reusable `requests.Session` clients. Each client sets its base URL, default headers, timeout, and the shared `HTTP_USER_AGENT` (`Ansible-Meetup-Tooling/0.1.0 (+https://github.com/ansible-community/meetup-pretix-discourse-tooling)`) once; redirects are disabled so API credentials are not forwarded to another URL.
 
 ### Installation (this tooling)
 
