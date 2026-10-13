@@ -327,6 +327,8 @@ This creates:
 - Discourse subcategory: `Events > Tokyo`
 - Pretix team: `Ansible Meetup Organisers - Tokyo`
 
+Provisioning first validates the configuration and Discourse meetup-group names, then reconciles Pretix organizer settings, teams and metadata, and the private template. It finishes by reconciling Discourse groups, city subcategories and access rules, then updates the city subscription field.
+
 ### 3. Verify
 
 ```bash

@@ -160,29 +160,29 @@ A hidden Pretix event (`ansible-meetup-template-v6`) that is never published. Al
 
 **Prerequisites:** `PRETIX_API_TOKEN` and `DISCOURSE_API_KEY` environment variables set. Discourse's `enable_category_group_moderation` setting must be enabled; provisioning fails before making changes if it is disabled or cannot be read.
 
-**Phase 1: Discourse Provisioning**
+Provisioning runs in this order. It performs pre-flight checks and validates the full meetup-named Discourse group inventory before making changes, then completes the Pretix setup before reconciling Discourse groups and categories.
 
-For each city in the `CITIES` registry:
+**Phase 1: Pretix Global Settings**
 
-1. Reconcile organiser group `meetup-organisers-{slug}` by exact name; set group and member-list visibility level 4 (group owners only), disable public admission and membership requests, clear automatic email-domain membership and group owners, and update its description. Forum admins manage membership. Set the group's default notification level to Tracking for its own city subcategory and apply that default to existing group members.
-
-2. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force group and member-list visibility level 3 (staff only).
-
-3. Fetch the paginated Discourse group directory and retain only groups whose name contains `meetup` (case-insensitive). Before any mutations, fail if a name in the `meetup-organisers` namespace does not match `^meetup-organisers-[a-z]+$`. Reconcile regional subcategory by parent and name. Set `everyone` to `create_post` (level 2: view and reply, but no new topics), and grant `full` (level 1) only to that city's organiser group. Do not grant category permissions to attendee groups; they are used for notifications. Set `moderating_group_ids` to that city's organiser group. Then remove registered organiser permissions and moderator assignments from every other category, considering only meetup-named groups.
-
-**Phase 2: Pretix Provisioning**
-
-4. Configure organizer settings:
+1. Configure organizer settings:
    - `PATCH /api/v1/organizers/ansible-meetups/`
    - Payload: `{"timezone": "UTC", "contact_mail": "ansible-community-events@redhat.com", "settings": {"organizer_team_creation": false}}`
 
-5. Ensure `forum_topic_url` meta property exists:
+**Phase 2: Pretix Teams and Metadata**
+
+2. Reconcile regional teams:
+   - Fetch all teams using `pretix_list_all("teams")` (paginated).
+   - For each city, create a missing team or reconcile its `all_events`, `all_event_permissions`, `limit_event_permissions`, and `limit_events`. The desired event list is rebuilt from all Pretix events whose slug exactly matches `{city-slug}-{three-letter-month}-{four-digit-year}`; stale and cross-city assignments are removed.
+3. Reconcile the Pretix staff team `Ansible Meetup Staff` with access to all events and all event permissions in the meetup organizer. The provisioner never changes its membership; Pretix admins add and remove staff members. No Forum group grants staff-team membership.
+4. Ensure `forum_topic_url` meta property exists:
    - `GET /api/v1/organizers/ansible-meetups/event_meta_properties/`
    - If no property named `forum_topic_url` in results:
      - `POST /api/v1/organizers/ansible-meetups/event_meta_properties/`
      - Payload: `{"name": "forum_topic_url", "default": "https://forum.ansible.com/c/events/8", "choices": []}`
 
-6. Create or reconcile template event:
+**Phase 3: Pretix Template**
+
+5. Create or reconcile template event:
    - Find the exact template slug in the paginated event list.
    - If absent:
      - `POST /api/v1/organizers/ansible-meetups/events/`
@@ -190,20 +190,25 @@ For each city in the `CITIES` registry:
    - On every run, reconcile `live=false`, `is_public=false`, and `timezone="UTC"`.
    - Do not send or verify `is_template`: Pretix's public event API does not expose that field. The private event is used as the clone source by its stable slug through `clone_from`.
 
-7. Enforce template settings:
+6. Enforce template settings:
    - `PATCH /api/v1/organizers/ansible-meetups/events/ansible-meetup-template-v6/settings/`
    - Payload: See "Master Template Settings" in Section 3.3.
 
-8. Ensure template has a default item + quota:
+7. Ensure template has a default item + quota:
    - `GET /api/v1/organizers/ansible-meetups/events/ansible-meetup-template-v6/items/`
    - If no items:
      - `POST .../items/` → `{"name": {"en": "RSVP"}, "default_price": "0.00", "active": true, "admission": true}`
      - `POST .../quotas/` → `{"name": "Capacity", "size": 100, "items": [item_id]}`
 
-9. Reconcile regional teams:
-   - Fetch all teams using `pretix_list_all("teams")` (paginated).
-   - For each city, create a missing team or reconcile an existing team's `all_events`, `all_event_permissions`, `limit_event_permissions`, and `limit_events`. The desired event list is rebuilt from all Pretix events whose slug exactly matches `{city-slug}-{three-letter-month}-{four-digit-year}`; stale and cross-city assignments are removed.
-10. Reconcile the Pretix staff team `Ansible Meetup Staff` with access to all events and all event permissions in the meetup organizer. The provisioner never changes its membership; Pretix admins add and remove staff members. No Forum group grants staff-team membership.
+**Phase 4: Discourse Groups**
+
+8. Fetch the paginated Discourse group directory, retaining only groups whose name contains `meetup` (case-insensitive). Before any mutations, fail if a name in the `meetup-organisers` namespace does not match `^meetup-organisers-[a-z]+$`.
+9. Reconcile organiser group `meetup-organisers-{slug}` by exact name; set group and member-list visibility level 4 (group owners only), disable public admission and membership requests, clear automatic email-domain membership and group owners, and update its description. Forum admins manage membership.
+10. Reconcile attendee group `meetup-attendee-{slug}` by exact name; force group and member-list visibility level 3 (staff only).
+
+**Phase 5: Discourse Subcategories and Access**
+
+11. For each city in the `CITIES` registry, reconcile its regional subcategory by parent and name. Set `everyone` to `create_post` (level 2: view and reply, but no new topics), and grant `full` (level 1) only to that city's organiser group. Do not grant category permissions to attendee groups; they are used for notifications. Set `moderating_group_ids` to that city's organiser group. Then remove registered organiser permissions and moderator assignments from every other category, considering only meetup-named groups. Set each organiser group's default notification level to Tracking for its own subcategory and apply that default to existing group members. Add missing city options to the Discourse user field.
 
 ### 4.2 Event Creation (`create_event.py`)
 

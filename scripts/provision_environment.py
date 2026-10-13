@@ -846,14 +846,8 @@ def ensure_user_field_options() -> None:
     )
 
 
-def main() -> None:
-    """Reconcile the configured Pretix and Discourse environment."""
-    pre_flight_checks()
-
-    # Validate the complete meetup group inventory before making any changes.
-    groups_by_name = index_groups_by_name(list_discourse_groups())
-
-    logger.info("--- 1. PRETIX PROVISIONING ---")
+def reconcile_pretix_global_settings() -> None:
+    """Reconcile Pretix organizer-wide settings."""
     organizer_settings = {
         "primary_color": ANSIBLE_PRIMARY_COLOR,
         "imprint_url": {"en": CODE_OF_CONDUCT_URL},
@@ -874,12 +868,9 @@ def main() -> None:
         current_settings,
     )
 
-    logger.info("Reconciling Pretix staff and city teams...")
-    all_events = reconcile_pretix_teams()
-    reconcile_pretix_meta_property()
-    reconcile_pretix_template(all_events)
 
-    logger.info("--- 2. DISCOURSE PROVISIONING ---")
+def reconcile_discourse_environment(groups_by_name: dict[str, dict[str, Any]]) -> None:
+    """Reconcile meetup groups, city subcategories, access, and user fields."""
     ensure_category_group_moderation_enabled()
 
     # Read each collection once. Subsequent create/update operations maintain
@@ -955,6 +946,27 @@ def main() -> None:
     reconcile_city_category_access(categories, plans_by_category_id, groups_by_name)
 
     ensure_user_field_options()
+
+
+def main() -> None:
+    """Reconcile the configured Pretix and Discourse environment."""
+    pre_flight_checks()
+
+    # Validate the complete meetup group inventory before making any changes.
+    groups_by_name = index_groups_by_name(list_discourse_groups())
+
+    logger.info("--- 1. PRETIX PROVISIONING ---")
+    reconcile_pretix_global_settings()
+
+    logger.info("Reconciling Pretix teams and metadata...")
+    all_events = reconcile_pretix_teams()
+    reconcile_pretix_meta_property()
+
+    logger.info("Reconciling Pretix template...")
+    reconcile_pretix_template(all_events)
+
+    logger.info("--- 2. DISCOURSE PROVISIONING ---")
+    reconcile_discourse_environment(groups_by_name)
 
     logger.info("--- PROVISIONING COMPLETE ---")
 
