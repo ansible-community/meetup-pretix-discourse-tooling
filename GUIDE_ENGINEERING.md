@@ -454,6 +454,8 @@ uv run pyright scripts/
 
 Document Python functions and methods with Google-style docstrings. Include `Args` and `Returns` sections when they clarify the callable's contract.
 
+GitHub Actions runs these checks on pull requests. The behavior test and package build jobs cover Python 3.13 and 3.14; static analysis uses Python 3.13.
+
 ### Ruff rules enabled
 
 `E` (pycodestyle), `F` (pyflakes), `B` (bugbear), `S` (bandit), `T20` (print), `DTZ` (datetimez), `UP` (pyupgrade), `SIM` (simplify), `G` (logging-format).

@@ -619,9 +619,9 @@ The `CITIES` tuple is defined in source code. Adding a new city requires a code 
 
 Social media copy is printed to stdout. There is no file output, clipboard integration, or API posting. The operator manually copies and pastes into each platform.
 
-### No CI/CD Pipeline
+### Continuous Integration
 
-There is no `.gitlab-ci.yml` or GitHub Actions workflow. Linting, testing, and type checking are manual (`bash lint.sh`, `uv run pytest`, `uv run pyright`).
+GitHub Actions runs the behavior tests and package build on Python 3.13 and 3.14. Static analysis runs Ruff lint and formatting checks plus Pyright on Python 3.13. The `setup-uv` action selects the Python runtime for each job.
 
 ### Event Duration Fixed at 3 Hours
 
