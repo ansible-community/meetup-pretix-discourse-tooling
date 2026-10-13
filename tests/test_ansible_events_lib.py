@@ -238,6 +238,24 @@ class TestCityInfoDerivedProperties:
 
 
 class TestPretixApiContract:
+    def test_api_client_applies_base_url_headers_timeout_and_no_redirects(self, monkeypatch):
+        import ansible_events_lib
+
+        client = ansible_events_lib.ApiClient("https://api.example/v1", {"Api-Key": "secret"}, timeout=7)
+        response = Mock(status_code=200)
+        request = Mock(return_value=response)
+        monkeypatch.setattr(client.session, "request", request)
+
+        assert client.request("GET", "users") is response
+
+        request.assert_called_once_with(
+            "GET",
+            "https://api.example/v1/users/",
+            timeout=7,
+            allow_redirects=False,
+        )
+        assert client.session.headers["Api-Key"] == "secret"
+
     def test_discourse_request_uses_explicit_run_as_identity(self, monkeypatch):
         import ansible_events_lib
 
