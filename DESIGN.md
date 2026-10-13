@@ -94,10 +94,6 @@ The integration relies on a unified suite of Python scripts that interact with t
   * Generates the `ansible-meetup-template-v6` with strict SSO-friendly checkout rules (single name field, no duplicate email, no payment step), zero-cost ticket items, ICS attachments, and Passbook plugins.
   * Creates and reconciles regional Pretix teams (`Ansible Meetup Organisers - {City}`) to the exact event set and granular order/check-in permissions for each city. It also creates the Pretix-only `Ansible Meetup Staff` team with access to all events; Pretix admins alone manage its members.
 
-### `discourse-connect-mvp.py` (SSO Test Toolkit)
-* **Role:** Standalone Flask application for testing and debugging the DiscourseConnect SSO flow.
-* **Function:** Implements the SSO protocol for diagnostics. It sends `require_2fa=true`, displays the signed `confirmed_2fa` assertion, and uses the Admin API for moderation/account details. The Pretix plugin—not this diagnostic tool—is the production login authority.
-
 ### `lint.sh` (Code Quality)
 * **Role:** Automated linting and formatting for all Python files.
 * **Function:** Runs isort (import ordering), ruff format, ruff check with auto-fix, and py_compile syntax verification across all project scripts.

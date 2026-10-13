@@ -30,7 +30,7 @@ The system is operated by the Ansible Community Team via CLI scripts. Local orga
 | **Pretix** | Event ticketing, RSVP, QR codes, check-in | REST API v1 (`/api/v1/`) | Token-based (`Authorization: Token {token}`) |
 | **Discourse** | Identity (SSO), forum, group permissions, event content | REST API (`/posts.json`, `/admin/groups.json`, etc.) | Global API key (`Api-Key` + `Api-Username` headers) |
 
-All outbound API requests use the `Ansible-pretix-discourse-auth/0.1.0 (+https://github.com/ansible-community/meetup-pretix-discourse-auth)` User-Agent. Requests-based clients configure it on their `requests.Session`; the standalone urllib helper supplies it per request. Pretix and Discourse requests use a 10-second timeout. Meetup Pro token requests use 10 seconds and GraphQL requests use 30 seconds, with a 60-second wait before retrying a rate-limited request. Redirects are disabled so credentials are not forwarded to another URL.
+All outbound API requests use configured Requests clients with the `Ansible-pretix-discourse-auth/0.1.0 (+https://github.com/ansible-community/meetup-pretix-discourse-auth)` User-Agent. Pretix and Discourse requests use a 10-second timeout. Meetup Pro token requests use 10 seconds and GraphQL requests use 30 seconds, with a 60-second wait before retrying a rate-limited request. Redirects are disabled so credentials are not forwarded to another URL.
 
 ### Trust Model
 
@@ -56,12 +56,6 @@ All outbound API requests use the `Ansible-pretix-discourse-auth/0.1.0 (+https:/
 | `DISCOURSE_URL` | All scripts | `https://forum.ansible.com` | Discourse instance base URL |
 | `DISCOURSE_API_KEY` | All scripts | *(none — required)* | Discourse API authentication |
 | `DISCOURSE_API_USER` | All scripts | `system` | Default Discourse API username |
-| `DISCOURSE_SSO_SECRET` | SSO toolkit only | *(none — required)* | HMAC shared secret for DiscourseConnect |
-| `DISCOURSE_BASE_URL` | SSO toolkit only | `https://forum.ansible.com` | SSO redirect target |
-| `CALLBACK_URL` | SSO toolkit only | `http://localhost:5000/callback` | SSO return URL |
-| `FLASK_SECRET` | SSO toolkit only | `dev-only-secret-change-me-0123456789` | Flask session signing key |
-| `DISCOURSE_API_USERNAME` | SSO toolkit only | `system` | Admin user for enrichment queries |
-| `MEETUP_KEYWORD` | SSO toolkit only | `meetup` | Keyword for meetup-related group/badge filtering |
 
 ---
 
@@ -301,75 +295,9 @@ For each city in the `CITIES` registry:
 - Print to stdout (not file, not API).
 - See Section 8 for full specification.
 
-### 4.3 SSO Authentication (`discourse-connect-mvp.py`)
+### 4.3 SSO Authentication
 
-**Purpose:** Development/test toolkit for the DiscourseConnect SSO flow. NOT a production service.
-
-**SSO Outbound Flow (`/login`):**
-
-1. Generate cryptographic nonce: `secrets.token_urlsafe(32)`.
-2. Store nonce in Flask session: `session["discourse_nonce"] = nonce`.
-3. Build SSO URL:
-   - Encode `{"nonce": nonce, "return_sso_url": CALLBACK_URL, "require_2fa": "true"}` unconditionally.
-   - Base64-encode the URL-encoded string.
-   - Sign with HMAC-SHA256 using `SSO_SECRET`.
-   - URL-encode the Base64 payload.
-   - Redirect user to `{DISCOURSE_BASE_URL}/session/sso_provider?sso={payload}&sig={signature}`.
-
-**SSO Inbound Flow (`/callback`):**
-
-1. Extract `sso` and `sig` from query parameters.
-2. URL-decode `sso`, verify HMAC signature (constant-time comparison via `hmac.compare_digest`).
-3. Base64-decode the payload, parse as URL-encoded key-value pairs.
-4. **Nonce validation:**
-   - Pop stored nonce from session.
-   - If stored nonce is `None` (expired session) → reject with 403.
-   - If `hmac.compare_digest(payload_nonce, stored_nonce)` fails → reject with 403.
-5. Proceed to analysis.
-
-**Analysis (Policy Engine):**
-
-Enrichment:
-- `GET /admin/users/{external_id}.json` → extract moderation status (`silenced_till`, `suspended_till`), staged status, trust level, and secondary groups.
-- `GET /user-badges/{username}.json` → extract badge names.
-
-Blocking rules (evaluated in order, all applicable reasons collected):
-
-| Condition | Reason |
-|---|---|
-| `is_silenced(api)` — `silenced_till` present and non-null | `"moderation: silenced [until {date}]"` |
-| `is_suspended(api)` — `suspended_till` present and non-null | `"moderation: suspended [until {date}]"` |
-| `is_anonymised(data)` — `email.endswith("@anonymized.invalid")` | `"RTBF: anonymised (block future ticket purchase)"` |
-| Organizer, Pretix staff-team member, or Pretix `is_staff` account without signed `confirmed_2fa=true` | `"privileged but DiscourseConnect did not confirm 2FA"` |
-
-Permission levels (highest wins):
-
-| Level | Condition |
-|---|---|
-| `blocked` | Any blocking reason triggered |
-| `staff` | User belongs to the Pretix-only `Ansible Meetup Staff` team or is marked `is_staff` by Pretix configuration |
-| `organiser ({cities})` | User has exact `meetup-organisers-[a-z]+` groups |
-| `regular` | Default |
-
-**Status Check Functions:**
-
-| Function | Check | Source |
-|---|---|---|
-| `is_anonymised(data)` | `email.endswith("@anonymized.invalid")` | SSO payload (email-domain only, matches Discourse `UserAnonymizer::EMAIL_SUFFIX`) |
-| `is_silenced(api_data)` | `bool(api_data.get("silenced_till"))` | Admin API (`silenced_till` is a datetime, present only when silenced) |
-| `is_suspended(api_data)` | `bool(api_data.get("suspended_till"))` | Admin API (`suspended_till` is a datetime, present only when suspended) |
-
-**Note:** The Discourse Admin API does **not** return boolean `silenced` or `suspended` fields. It returns `silenced_till` and `suspended_till` as datetime values, **only when the user is silenced/suspended**. The helper functions check for presence and non-null value of these keys.
-
-**Endpoints:**
-
-| Route | Method | Purpose |
-|---|---|---|
-| `/` | GET | Landing page with login link + last analysis result |
-| `/login` | GET | Generate nonce, redirect to Discourse SSO |
-| `/callback` | GET | Verify SSO payload, run analysis, display result |
-| `/debug` | GET | JSON dump of last SSO state (HTML-escaped) |
-| `/logout` | GET | Clear Flask session, redirect to `/` |
+Authentication is provided by the separate `meetup-pretix-discourse-auth` plugin. This repository provisions the Forum and Pretix resources used by that plugin; it does not implement or diagnose the SSO flow.
 
 ---
 
@@ -473,19 +401,9 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 | `--capacity` | Integer | `argparse type=int` — rejects non-integers |
 | `--organiser` | Discourse username | Membership-checked, then used as the Discourse `Api-Username` |
 
-### XSS Prevention
-
-- All Jinja2 `render_template_string` output is auto-escaped by Flask.
-- All non-Jinja2 HTML responses use `html.escape()`:
-  - Error page status messages
-  - `/debug` endpoint JSON dump
-
 ### SSO Security
 
-- HMAC-SHA256 signature verification on all inbound payloads.
-- Constant-time comparison via `hmac.compare_digest`.
-- Nonce validation: stored nonce must be non-`None` AND must match payload nonce.
-- Empty-nonce bypass prevented: `if not stored or not hmac.compare_digest(...)`.
+The separate `meetup-pretix-discourse-auth` plugin owns SSO signature, nonce, rate-limit, and session security.
 
 ### Log Sanitization
 
@@ -506,8 +424,6 @@ Same typed contract as Pretix. Duplicate creation errors are not swallowed; prov
 ### Known Accepted Risks
 
 1. **`run_as` scope:** `create_event.py --organiser` impersonates the selected Discourse user when posting. Membership is validated first; API key scope remains important.
-2. **Flask secret key:** Default dev-only key is committed to source. Production deployment requires `FLASK_SECRET` env var override.
-3. **`/debug` endpoint:** Exposes last user's full SSO profile. No authentication. Acceptable for localhost-only dev tool.
 
 ---
 
@@ -616,8 +532,6 @@ X and Bluesky include a fallback mechanism: if the primary text exceeds the char
 - **Import ordering:** isort with `--profile black`.
 - **Per-file ignores:**
   - `create_event.py`: `T201` (print), `E501` (line length for social copy)
-  - `discourse-connect-mvp.py`: `T201`, `S105` (hardcoded secret default), `S310` (urllib audit), `E501`
-  - `main.py`: `T201`
 
 ### Testing
 
@@ -695,10 +609,6 @@ The `teams` list endpoint is paginated via `pretix_list_all`. Other list endpoin
 
 `create_event.py` uses `clone_from: ansible-meetup-template-v6`. It checks that the template exists before mutation. Run `provision_environment.py` to create or reconcile it.
 
-### Single-Process Flask Dev Server
-
-`discourse-connect-mvp.py` uses Flask's built-in server (`app.run(debug=False)`). The `_last` global dict stores the most recent SSO state across all requests. This is NOT safe for multi-user or production deployment.
-
 ### Hardcoded Cities Registry
 
 The `CITIES` tuple is defined in source code. Adding a new city requires a code change in this repo and a matching `CITY_TEAM_NAME_BY_SLUG` entry in the auth repo, followed by deployment of both. There is no database, config file, or API for dynamic city management.
@@ -731,11 +641,7 @@ The script attempts compensating cleanup if Pretix event creation fails. If the 
 
 **How many cities will this system support at maturity?** Teams listing is now paginated via `pretix_list_all`. Other list endpoints (`items`, `quotas`, `event_meta_properties`) still assume <50 results per page. If 50+ cities: consider async/concurrent provisioning in day0.
 
-### Q3: SSO Toolkit Scope
-
-Is `discourse-connect-mvp.py` a throwaway test tool, or should the rebuild include a production-grade SSO verification layer? If production: it needs proper session storage (Redis/DB), authentication on `/debug`, HTTPS enforcement, and WSGI deployment (gunicorn).
-
-### Q4: Cities Registry Storage
+### Q3: Cities Registry Storage
 
 Who adds new cities? Should the registry be:
 - **Hardcoded** (current) — requires code deployment for each new city.

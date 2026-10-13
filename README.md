@@ -6,19 +6,7 @@ WIP: Ansible Community Tooling for migration from Meetup Pro to Discourse + pret
  * Luma: Discoverability
 
 
-# Discourse Connect MVP
-
-Get the `localhost` secret from [forum settings](https://forum.ansible.com/admin/site_settings/category/all_results?filter=connect%20provider).
-```
-export DISCOURSE_API_USERNAME=gundalow
-export DISCOURSE_API_KEY=REDACTED
-export DISCOURSE_SSO_SECRET=REDACTED
-uv run scripts/discourse-connect-mvp.py
-```
-
-Browser: http://localhost:5000
-
-Errors: https://forum.ansible.com/logs/
+The production sign-in flow is provided by the separate `meetup-pretix-discourse-auth` plugin. This repository contains provisioning and event-management tooling; it does not include a local SSO prototype.
 
 # Pretix plugin
 
@@ -35,4 +23,3 @@ git clone git@github.com:ansible-community/meetup-pretix-discourse-auth.git
 cd pretix-discourse-auth
 pip install -e .
 ```
-

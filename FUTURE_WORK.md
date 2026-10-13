@@ -708,8 +708,4 @@ Organised by attendee lifecycle stage. Each item has a consistent structure: des
 
 ## Open (Accepted Risk)
 
-**SSO test toolkit**
-
-* **Risk:** `discourse-connect-mvp.py` has a default Flask secret key and unauthenticated `/debug` endpoint.
-* **Mitigation:** Explicitly a localhost-only dev tool, never deployed.
-* **Future:** If deployed beyond localhost: require `FLASK_SECRET`, gate `/debug`, enforce `SESSION_COOKIE_SECURE=True`.
+The standalone SSO test toolkit has been removed. Production SSO security is maintained in the separate auth plugin repository.

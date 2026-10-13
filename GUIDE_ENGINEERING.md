@@ -26,7 +26,7 @@ export DISCOURSE_API_KEY="your-discourse-api-key"     # Required — Discourse A
 
 The Discourse URL (`https://forum.ansible.com`) and API user (`system`) are hardcoded — they are the same for all deployments.
 
-All outbound API requests use the `Ansible-pretix-discourse-auth/0.1.0 (+https://github.com/ansible-community/meetup-pretix-discourse-auth)` User-Agent. Requests-based API helpers set it once on their reusable `requests.Session`; the standalone urllib helper sends it on each request.
+All outbound API requests use the shared Requests clients and the `Ansible-pretix-discourse-auth/0.1.0 (+https://github.com/ansible-community/meetup-pretix-discourse-auth)` User-Agent.
 
 ### Installation (this tooling)
 
